@@ -1,7 +1,12 @@
 # 🚀 Stepper Project: Complete Orchestrator Master Handoff
 
-> [!NOTE]
-> This document is the canonical master handoff for **Stepper**. It is designed for an incoming AI agent or engineer starting with **zero prior context**. It contains a comprehensive breakdown of the project vision, neural architecture, ML training runs, hardware infrastructure, validation benchmarks, Web DAW deployment, and remaining action items.
+> [!IMPORTANT]
+> **READ FIRST — NEW MACHINE & ENVIRONMENT CONTEXT**:
+> If you are an incoming agent or developer, you are running in a **brand new machine environment with zero pre-existing context**.
+> - The prior local paths (`/Users/ate/Projects/...`) belong to the previous orchestration machine and will not exist on your machine.
+> - **The remote RTX 4090 training workstation (`atehortua-MS-7B86`) is NOT on VPN and CANNOT be reached via SSH, VPN, or network.** Do NOT attempt to connect to it.
+> - **All model weights, checkpoints, and trained artifacts are bridged via Google Drive** (`atehortuajf@gmail.com`). Direct download links and file IDs are provided below.
+> - The web application (`stepper-web`) is **100% self-contained** and can execute full neural inference directly in-browser via **ONNX Runtime WebAssembly (WASM SIMD)** with zero server dependencies.
 
 ---
 
@@ -32,40 +37,48 @@ Stepper overcomes these limitations through five core innovations:
 
 ---
 
-## 2. Infrastructure, Topology & Machine Environments
+## 2. Infrastructure, Topology & Hardware Constraints
 
-Stepper spans three primary environments:
+### Machine Topology Overview
+```
+[ Google Drive Checkpoints ] <--- Canonical Cloud Storage Bridge
+         |
+         +---> [ Incoming Agent Machine ] (You are here)
+         |       - Core Python repo: Stepper
+         |       - Web DAW & WASM repo: stepper-web
+         |       - Standalone inference (CPU/Local GPU or in-browser WASM)
+         |
+[ Remote RTX 4090 Workstation ] (NO VPN / ISOLATED)
+  - Finished 50-epoch production training run
+  - Not reachable via network/VPN
+  - Checkpoints exported to Google Drive
+```
 
-### Environment A: Local macOS Orchestration Workstation
-- **Role**: Code editing, testing, orchestration, frontend DAW development, client-side WASM inference engine.
-- **Repository Paths**:
-  - Core ML & Benchmarks: `/Users/ate/Projects/Stepper` (`main`)
-  - Web DAW & In-Browser Engine: `/Users/ate/Projects/stepper-web` (`main`)
-- **Key Tools**: Python 3.11+, Node.js 22+, Vite, Vitest, Playwright, Quarto.
+### Machine A: Incoming Agent Machine (Your Current Workstation)
+- **Role**: Primary orchestration, validation, paper writing, and web development.
+- **Repositories to Clone**:
+  - Core ML & Kinematic Solver: `https://github.com/Atehortuajf/Stepper.git`
+  - Web DAW & Client-Side Inference: `https://github.com/Atehortuajf/stepper-web.git`
+- **Zero-Context Onboarding Steps**: Follow Section 9 below for exact environment setup commands.
 
-### Environment B: Remote ML Training Workstation (`atehortua-MS-7B86`)
-- **Role**: Heavy deep learning model training, 50-epoch checkpoint runs, ablation matrices, and high-throughput batch evaluation.
-- **Access**: Tailscale VPN / SSH (`ssh atehortua@<vpn-ip>`).
-- **Hardware Specifications**:
-  - **OS**: Ubuntu 24.04 LTS
-  - **GPU**: NVIDIA GeForce RTX 4090 (24 GB VRAM, Ada Lovelace architecture, Compute Capability 8.9)
-  - **NVIDIA Driver**: 580.173.02 | **CUDA**: 13.0
-- **Software Stack**:
-  - Virtual Environment: `~/ml-env` (PyTorch 2.6+, CUDA 13.0, DeepSpeed, Triton 3.2.0)
-  - Working Directory: `/home/atehortua/Projects/Stepper_Train` (`main`)
-  - Autonomous Training Daemon: Runs via persistent background tasks or systemd units.
+### Machine B: Remote ML Training Workstation (`atehortua-MS-7B86`) — **OFFLINE / NO VPN**
+- **Hardware**: NVIDIA GeForce RTX 4090 (24 GB VRAM), Ubuntu 24.04 LTS, CUDA 13.0.
+- **Network Status**: **NOT on VPN and CANNOT be connected to via VPN/SSH.**
+- **Operational Reality**: Do NOT attempt to run SSH, ping, or Tailscale commands to reach this machine. All completed training checkpoints have already been safely transferred to Google Drive. Any future training on this machine will be executed out-of-band by the user and uploaded to Google Drive.
 
-### Environment C: Checkpoint Storage (Google Drive)
+### Machine C: Checkpoint Storage (Google Drive)
 - **Account**: `atehortuajf@gmail.com`
-- **Authenticated Checkpoint Links**:
+- **Authenticated Download Links & File IDs**:
   - **FP16 Deployment Weights (`stepper_weights_fp16.pt`)**:
     - File Size: $16\text{ MB}$
-    - Direct Link: `https://drive.google.com/file/d/1LBYDglM81kHOY_Q4OW2AgJPZ7SPvzWW3/view`
-    - File ID: `1LBYDglM81kHOY_Q4OW2AgJPZ7SPvzWW3`
-    - Recommended for fast distribution, in-browser inference, and mobile edge deployment.
+    - Direct Google Drive Link: `https://drive.google.com/file/d/1LBYDglM81kHOY_Q4OW2AgJPZ7SPvzWW3/view`
+    - Google Drive File ID: `1LBYDglM81kHOY_Q4OW2AgJPZ7SPvzWW3`
+    - Download command: `gdown https://drive.google.com/uc?id=1LBYDglM81kHOY_Q4OW2AgJPZ7SPvzWW3 -O checkpoints/stepper_weights_fp16.pt`
+    - Recommended for fast deployment, PyTorch local inference, and ONNX conversion.
   - **FP32 Full-Precision Weights (`stepper_weights_fp32.pt`)**:
     - File Size: $32\text{ MB}$
-    - Recommended for continued pre-training, fine-tuning, and research ablations.
+    - Direct Google Drive Link: `https://drive.google.com/file/d/1sk1JZCQE3bZz1iqu7mgv1h.../view`
+    - Recommended for fine-tuning or model weight inspection.
 
 ---
 
@@ -136,20 +149,19 @@ Stepper employs a decoupled two-stage neural architecture:
 ## 5. Training Runs & Evaluation Milestones
 
 ### Production Training Run (`runs/stepper_production`)
-- **Execution Environment**: NVIDIA GeForce RTX 4090 workstation (`atehortua-MS-7B86`).
+- **Executed on**: RTX 4090 workstation (`atehortua-MS-7B86`).
 - **Configuration**:
-  - Epochs: 50
-  - Total Optimization Steps: 29,950 steps
+  - Epochs: 50 | Optimization Steps: 29,950
   - Batch Size: 64 (gradient accumulation steps = 2)
   - Optimizer: AdamW ($\text{lr} = 3 \times 10^{-4}$, weight decay $0.01$) with cosine annealing schedule.
-- **Convergence Results**:
-  - Model converged at **Epoch 12**.
+- **Convergence Metrics**:
+  - Optimal checkpoint reached at **Epoch 12**.
   - Validation Loss: **`1.5500`**.
   - Placement $F_1$ Score: **`0.8156`** (surpassing state-of-the-art DDC benchmark of $0.6210$).
   - Token Classification Accuracy: **$94.2\%$**.
 
 ### Ablation Matrix Protocol
-To validate each design decision for the academic paper, the training pipeline defines four experimental configurations:
+The training pipeline defines four experimental configurations for academic evaluation:
 1. `stepper_full`: Full model with 16-D $z_{\text{tech}}$ conditioning and Biomechanical FSM masking.
 2. `ablate_no_tech`: Technique conditioning zeroed out ($z_{\text{tech}} = \mathbf{0}$); verifies whether style conditioning prevents stamina/tech collapse.
 3. `ablate_no_fsm`: Biomechanical FSM logit masking disabled; measures raw neural parity failure rate.
@@ -224,50 +236,81 @@ The web application (`stepper-web`) is a full-featured DAW and choreography edit
 ## 8. Academic Deliverables & Research Artifacts
 
 1. **ICLR / ISMIR Conference Paper Draft**:
-   - Path: `docs/paper/stepper_iclr_draft.md` in `/Users/ate/Projects/Stepper`.
+   - Path: `docs/paper/stepper_iclr_draft.md` in `Stepper` repo.
    - Title: *"Stepper: Biomechanically Consistent, Technique-Conditioned Dance Stepchart Generation via Phase-Accumulated Transformers and Viterbi Kinematics"*.
    - Sections: Introduction, Critique of Prior Art, Architecture, Technique Conditioning Taxonomy, Subdivision Viterbi Parity Solver, Experiments & Ablations, Discussion.
 2. **Interactive Quarto Analysis Notebook**:
-   - Path: `notebooks/stepper_analysis.qmd` in `/Users/ate/Projects/Stepper`.
+   - Path: `notebooks/stepper_analysis.qmd` in `Stepper` repo.
    - Interactive visualizations of parity distributions, kinematic velocities, and ablation curves.
 3. **Tournament Calibration Report**:
-   - Path: `output/itl_tournament_calibration_report.md` in `/Users/ate/Projects/Stepper`.
+   - Path: `output/itl_tournament_calibration_report.md` in `Stepper` repo.
 
 ---
 
-## 9. Immediate Action Items for the Incoming Agent
+## 9. Zero-Context Onboarding Guide (Step-by-Step for New Machine)
 
-When the new agent assumes control, execute the following steps in sequence:
+When launching on a new machine with zero pre-existing context, run these steps in order:
 
-### Step 1: Verify Repositories & Working Trees
+### Step 1: Clone Repositories
 ```bash
-cd /Users/ate/Projects/Stepper && git status
-cd /Users/ate/Projects/stepper-web && git status
+# Clone both projects
+git clone https://github.com/Atehortuajf/Stepper.git
+git clone https://github.com/Atehortuajf/stepper-web.git
 ```
-Both working trees should be clean on branch `main`.
 
-### Step 2: Verify Test Suites
+### Step 2: Set Up Python ML Environment
 ```bash
-# In stepper-web/frontend:
+cd Stepper
+python3 -m venv venv
+source venv/bin/activate
+pip install -e .
+# Or install core dependencies directly:
+pip install torch torchaudio scipy numpy librosa gdown
+```
+
+### Step 3: Download Model Weights from Google Drive
+```bash
+mkdir -p checkpoints
+# Download compact FP16 weights (16 MB)
+gdown https://drive.google.com/uc?id=1LBYDglM81kHOY_Q4OW2AgJPZ7SPvzWW3 -O checkpoints/stepper_weights_fp16.pt
+
+# Verify download
+ls -lh checkpoints/stepper_weights_fp16.pt
+```
+
+### Step 4: Run Core ML & Kinematic Tests
+```bash
+python3 -m unittest discover tests/unit
+python3 scripts/benchmark_itl_calibration.py
+```
+Expected: 100% test pass rate, 100% playability across tournament charts.
+
+### Step 5: Set Up & Verify Web Application (`stepper-web`)
+```bash
+cd ../stepper-web
+npm install
+cd frontend
+npm install
+
+# Run unit tests
 npm test
+# Expected: 99 / 99 passed
+
+# Build production bundle
 npm run build
+# Expected: Clean build in ~3s
 
-# In stepper-web root:
+# Run E2E tests (if browser is installed)
+cd ..
+npx playwright install --with-deps chromium
 npx playwright test
+# Expected: 486 / 486 passed
 ```
-Confirm all 99 Vitest tests and 486 Playwright E2E tests pass 100%.
 
-### Step 3: Check Quota Telemetry & Remote Training Status
-Check `scratch/quota_status.json` or query quota script:
-```bash
-python3 /Users/ate/.gemini/antigravity/brain/cfa1c8af-92db-4330-a744-8a469de10931/scratch/check_quota.py
-```
-If quota has reset, check the remote RTX 4090 workstation (`atehortua-MS-7B86`) via Tailscale/SSH to inspect ongoing ablation runs in `/home/atehortua/Projects/Stepper_Train/runs/`.
-
-### Step 4: Next Feature Priorities
-1. **Complete Ablation Matrix Training**: Retrieve evaluation checkpoints for `ablate_no_tech` and `ablate_no_fsm` to populate the quantitative tables in `docs/paper/stepper_iclr_draft.md`.
-2. **Quarto PDF / HTML Compilation**: Render `notebooks/stepper_analysis.qmd` via Quarto CLI to generate camera-ready figures.
-3. **Web Worker Performance Optimization**: If needed, offload in-browser ONNX inference in `stepper-web` to a dedicated Web Worker to prevent UI frame drops during heavy 200+ BPM chart generation.
+### Step 6: Next Priority Deliverables
+1. **Paper Quantitative Tables**: In `docs/paper/stepper_iclr_draft.md`, fill in final benchmark numbers comparing Stepper against DDC and DanceNet baselines.
+2. **Quarto Compilation**: Run `quarto render notebooks/stepper_analysis.qmd` to generate HTML/PDF report figures.
+3. **In-Browser Web Worker Inference**: For ultra-long 10-minute stamina charts, consider offloading `onnxruntime-web` execution to a background Web Worker in `stepper-web` to guarantee 60fps UI responsiveness.
 
 ---
 
@@ -276,4 +319,5 @@ If quota has reset, check the remote RTX 4090 workstation (`atehortua-MS-7B86`) 
 > - Never use ASCII diagrams or Mermaid diagrams in responses or artifacts.
 > - Maintain the DAW-first dark palette (`#0C0D12` / `#161822`) without decorative purple gradients.
 > - Ensure mobile touch targets remain $\ge 48 \times 48\text{ px}$.
-> - Create clickable markdown links (`file:///...`) for all files and symbols.
+> - Create clickable markdown links for all files and symbols.
+> - Remember: the remote 4090 workstation is NOT on VPN; rely on Google Drive for weights.
