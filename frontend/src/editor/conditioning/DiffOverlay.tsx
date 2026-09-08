@@ -5,9 +5,10 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import type { NoteRow } from '../engine/types';
+import type { NoteRow, SubdivisionTier } from '../engine/types';
 import type { Placement } from '../api/stepperApi';
-import { getSubdivisionColor } from '../engine/subdivisions';
+import { getBeatSubdivision, getSubdivisionColor } from '../engine/subdivisions';
+import { CelArrow } from '../ui/noteskins';
 
 export type DiffItemType = 'added' | 'modified' | 'deleted' | 'unchanged';
 
@@ -127,6 +128,37 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
 
   const hasProposed = proposedPlacements !== null && proposedPlacements.length >= 0;
 
+  const renderArrowMiniatures = (chordStr: string, tier: SubdivisionTier) => {
+    if (!chordStr || chordStr === '0000') {
+      return <span className="text-[#30364d]">••••</span>;
+    }
+    return (
+      <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5">
+          {chordStr.split('').map((ch, idx) => {
+            if (ch === '0') {
+              return (
+                <span key={idx} className="text-[#2a3044] text-[10px] w-3 text-center">
+                  •
+                </span>
+              );
+            }
+            return (
+              <CelArrow
+                key={idx}
+                col={(idx % 4) as 0 | 1 | 2 | 3}
+                subdivision={tier}
+                noteType={ch === 'M' ? 'MINE' : ch === 'L' ? 'LIFT' : ch === '2' ? 'HOLD' : ch === '4' ? 'ROLL' : 'TAP'}
+                size={13}
+              />
+            );
+          })}
+        </div>
+        <span className="font-mono text-[10px] opacity-75">{chordStr}</span>
+      </div>
+    );
+  };
+
   return (
     <div
       className={`flex flex-col bg-[#0d1017] border border-[#212636] rounded-md p-3 text-xs text-[#c9d1d9] gap-3 ${className}`}
@@ -194,9 +226,17 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
         </div>
       </div>
 
-      {/* Diff Preview Content when proposed notes exist */}
-      {hasProposed && (
-        <div className="space-y-2 border-t border-[#1e2333] pt-2" data-testid="diff-preview-container">
+      {/* Latency & Telemetry Info */}
+      {latencyMs !== undefined && (
+        <div className="flex items-center justify-between text-[11px] font-mono text-[#8b949e] px-1">
+          <span>Model: {modelUsed || 'WASM-SIMD Local'}</span>
+          <span>Inference Latency: {latencyMs.toFixed(1)} ms</span>
+        </div>
+      )}
+
+      {/* Diff Table and Action Bar when proposed placements exist */}
+      {proposedPlacements && (
+        <div className="flex flex-col gap-2" data-testid="diff-preview-container">
           {/* Diff Summary Stats Badges */}
           <div className="flex items-center justify-between bg-[#12151e] p-2 rounded border border-[#1e2333]">
             <div className="flex items-center gap-2 font-mono text-[10px]">
@@ -251,6 +291,7 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
                 ) : (
                   filteredRows.map((r) => {
                     const color = getSubdivisionColor(r.beat);
+                    const tier = getBeatSubdivision(r.beat);
                     return (
                       <tr
                         key={r.beat.toFixed(3)}
@@ -274,29 +315,11 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
                         </td>
 
                         <td className="py-1 px-2 font-bold tracking-widest text-[#58a6ff]">
-                          {r.currentArrows === '0000' ? (
-                            <span className="text-[#30364d]">••••</span>
-                          ) : (
-                            r.currentArrows
-                          )}
+                          {renderArrowMiniatures(r.currentArrows, tier)}
                         </td>
 
                         <td className="py-1 px-2 font-bold tracking-widest">
-                          {r.proposedArrows === '0000' ? (
-                            <span className="text-[#30364d]">••••</span>
-                          ) : (
-                            <span
-                              className={`${
-                                r.type === 'added'
-                                  ? 'text-[#00e676]'
-                                  : r.type === 'modified'
-                                  ? 'text-[#ffd000]'
-                                  : 'text-[#00e5ff]'
-                              }`}
-                            >
-                              {r.proposedArrows}
-                            </span>
-                          )}
+                          {renderArrowMiniatures(r.proposedArrows, tier)}
                         </td>
 
                         <td className="py-1 px-2">

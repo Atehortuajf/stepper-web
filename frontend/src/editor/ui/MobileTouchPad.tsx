@@ -6,6 +6,7 @@
  */
 
 import React, { useState } from 'react';
+import { CelArrow } from './noteskins';
 
 export interface MobileTouchPadProps {
   onPadPress: (colIndex: number, keyNumber: number) => void;
@@ -72,68 +73,88 @@ export const MobileTouchPad: React.FC<MobileTouchPadProps> = ({
         <button
           type="button"
           onPointerDown={() => handleTouch(0, 1)}
-          className={`touch-arrow flex-1 flex items-center justify-center rounded-lg border-2 font-bold text-2xl transition-all cursor-pointer ${
+          className={`touch-arrow flex-1 flex items-center justify-center rounded-lg border-2 transition-all cursor-pointer ${
             pressedCol === 0 + bankOffset
-              ? 'border-[#00A2FF] bg-[#283048] text-[#00A2FF] scale-95'
-              : 'border-[#363C52] bg-[#1F2434] text-white hover:border-[#5A627A]'
+              ? 'border-[#FF2A55] bg-[#283048] scale-95 shadow-[0_0_12px_#FF2A5588]'
+              : 'border-[#363C52] bg-[#1F2434] hover:border-[#5A627A]'
           }`}
           style={{ height: '72px', minWidth: '48px', minHeight: '48px', maxWidth: '90px' }}
           data-testid="pad-left"
           data-key="1"
           aria-label="Tap Left Arrow"
         >
-          &larr;
+          <CelArrow
+            col={0}
+            subdivision={4}
+            isPressed={pressedCol === 0 + bankOffset}
+            size={46}
+          />
         </button>
 
         {/* Down Arrow */}
         <button
           type="button"
           onPointerDown={() => handleTouch(1, 2)}
-          className={`touch-arrow flex-1 flex items-center justify-center rounded-lg border-2 font-bold text-2xl transition-all cursor-pointer ${
+          className={`touch-arrow flex-1 flex items-center justify-center rounded-lg border-2 transition-all cursor-pointer ${
             pressedCol === 1 + bankOffset
-              ? 'border-[#00A2FF] bg-[#283048] text-[#00A2FF] scale-95'
-              : 'border-[#363C52] bg-[#1F2434] text-white hover:border-[#5A627A]'
+              ? 'border-[#00A2FF] bg-[#283048] scale-95 shadow-[0_0_12px_#00A2FF88]'
+              : 'border-[#363C52] bg-[#1F2434] hover:border-[#5A627A]'
           }`}
           style={{ height: '72px', minWidth: '48px', minHeight: '48px', maxWidth: '90px' }}
           data-testid="pad-down"
           data-key="2"
           aria-label="Tap Down Arrow"
         >
-          &darr;
+          <CelArrow
+            col={1}
+            subdivision={8}
+            isPressed={pressedCol === 1 + bankOffset}
+            size={46}
+          />
         </button>
 
         {/* Up Arrow */}
         <button
           type="button"
           onPointerDown={() => handleTouch(2, 3)}
-          className={`touch-arrow flex-1 flex items-center justify-center rounded-lg border-2 font-bold text-2xl transition-all cursor-pointer ${
+          className={`touch-arrow flex-1 flex items-center justify-center rounded-lg border-2 transition-all cursor-pointer ${
             pressedCol === 2 + bankOffset
-              ? 'border-[#00A2FF] bg-[#283048] text-[#00A2FF] scale-95'
-              : 'border-[#363C52] bg-[#1F2434] text-white hover:border-[#5A627A]'
+              ? 'border-[#9E3CFF] bg-[#283048] scale-95 shadow-[0_0_12px_#9E3CFF88]'
+              : 'border-[#363C52] bg-[#1F2434] hover:border-[#5A627A]'
           }`}
           style={{ height: '72px', minWidth: '48px', minHeight: '48px', maxWidth: '90px' }}
           data-testid="pad-up"
           data-key="3"
           aria-label="Tap Up Arrow"
         >
-          &uarr;
+          <CelArrow
+            col={2}
+            subdivision={12}
+            isPressed={pressedCol === 2 + bankOffset}
+            size={46}
+          />
         </button>
 
         {/* Right Arrow */}
         <button
           type="button"
           onPointerDown={() => handleTouch(3, 4)}
-          className={`touch-arrow flex-1 flex items-center justify-center rounded-lg border-2 font-bold text-2xl transition-all cursor-pointer ${
+          className={`touch-arrow flex-1 flex items-center justify-center rounded-lg border-2 transition-all cursor-pointer ${
             pressedCol === 3 + bankOffset
-              ? 'border-[#00A2FF] bg-[#283048] text-[#00A2FF] scale-95'
-              : 'border-[#363C52] bg-[#1F2434] text-white hover:border-[#5A627A]'
+              ? 'border-[#FFD000] bg-[#283048] scale-95 shadow-[0_0_12px_#FFD00088]'
+              : 'border-[#363C52] bg-[#1F2434] hover:border-[#5A627A]'
           }`}
           style={{ height: '72px', minWidth: '48px', minHeight: '48px', maxWidth: '90px' }}
           data-testid="pad-right"
           data-key="4"
           aria-label="Tap Right Arrow"
         >
-          &rarr;
+          <CelArrow
+            col={3}
+            subdivision={16}
+            isPressed={pressedCol === 3 + bankOffset}
+            size={46}
+          />
         </button>
       </div>
     </div>

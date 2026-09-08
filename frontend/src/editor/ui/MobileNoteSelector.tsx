@@ -7,6 +7,7 @@
  */
 
 import React from 'react';
+import { CelArrow } from './noteskins';
 
 export type NoteToolType = 'TAP' | 'HOLD' | 'ROLL' | 'MINE' | 'LIFT' | 'FAKE' | 'DEL';
 
@@ -41,7 +42,7 @@ export const MobileNoteSelector: React.FC<MobileNoteSelectorProps> = ({
             key={t.type}
             type="button"
             onClick={() => onSelectTool(t.type)}
-            className={`tool-btn flex-1 flex items-center justify-center font-mono font-bold text-xs rounded transition-all min-h-[48px] min-w-[44px] ${
+            className={`tool-btn flex-1 flex flex-col sm:flex-row items-center justify-center gap-1 font-mono font-bold text-[10px] sm:text-xs rounded transition-all min-h-[48px] min-w-[44px] px-1 ${
               isActive
                 ? 'active bg-[#00A2FF] text-black shadow-md border-2 border-white'
                 : 'bg-[#1F2434] text-[#C0C4D6] hover:bg-[#283048] border border-[#33384D]'
@@ -50,7 +51,14 @@ export const MobileNoteSelector: React.FC<MobileNoteSelectorProps> = ({
             data-testid={`tool-${t.type.toLowerCase()}`}
             title={`Select ${t.label} placement tool`}
           >
-            {t.label}
+            <CelArrow
+              col={2}
+              noteType={t.type}
+              subdivision={t.type === 'TAP' ? 4 : t.type === 'HOLD' ? 8 : 12}
+              size={18}
+              isPressed={isActive}
+            />
+            <span>{t.label}</span>
           </button>
         );
       })}

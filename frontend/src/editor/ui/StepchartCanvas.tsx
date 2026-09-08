@@ -6,9 +6,17 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import { getSubdivisionColor } from '../engine/subdivisions';
+import { getBeatSubdivision, getBeatSubdivisionColor } from '../engine/subdivisions';
 import type { NoteRow, StepsType } from '../engine/types';
 import type { Placement } from '../api/stepperApi';
+import {
+  drawCelArrow,
+  drawCelReceptor,
+  drawCelHold,
+  drawCelMine,
+  drawCelLift,
+  CelArrow,
+} from './noteskins';
 
 export interface StepchartCanvasProps {
   noteRows: NoteRow[];
@@ -22,7 +30,6 @@ export interface StepchartCanvasProps {
   height?: number;
 }
 
-const RECEPTOR_SYMBOLS = ['←', '↓', '↑', '→', '←', '↓', '↑', '→'];
 const RECEPTOR_COLORS = ['#FF2A55', '#00A2FF', '#9E3CFF', '#FFD000', '#FF2A55', '#00A2FF', '#9E3CFF', '#FFD000'];
 
 export const StepchartCanvas: React.FC<StepchartCanvasProps> = ({
@@ -116,7 +123,7 @@ export const StepchartCanvas: React.FC<StepchartCanvasProps> = ({
         const subBeat = b + s * 0.25;
         const subY = receptorY + (subBeat - currentBeat) * pixelsPerBeat;
         if (subY >= 0 && subY <= canvasH) {
-          const color = getSubdivisionColor(subBeat);
+          const color = getBeatSubdivisionColor(subBeat);
           ctx.strokeStyle = `${color}33`;
           ctx.lineWidth = 1;
           ctx.setLineDash([2, 4]);
@@ -141,99 +148,33 @@ export const StepchartCanvas: React.FC<StepchartCanvasProps> = ({
             const yHead = receptorY + (row.beat - currentBeat) * pixelsPerBeat;
             const yTail = receptorY + (tailRow.beat - currentBeat) * pixelsPerBeat;
             const x = c * colWidth + colWidth / 2;
-
-            ctx.fillStyle = ch === '4' ? '#38EF7D44' : '#00A2FF44';
-            ctx.strokeStyle = ch === '4' ? '#38EF7D' : '#00A2FF';
-            ctx.lineWidth = 4;
-
-            const topY = Math.min(yHead, yTail);
-            const bodyH = Math.abs(yTail - yHead);
-            ctx.fillRect(x - 8, topY, 16, bodyH);
-            ctx.strokeRect(x - 8, topY, 16, bodyH);
+            drawCelHold(ctx, (c % 4) as 0 | 1 | 2 | 3, x, Math.min(yHead, yTail), Math.max(yHead, yTail), colWidth, ch === '4');
           }
         }
       }
     }
 
-    // 5. Draw Notes
+    // 5. Draw Notes with Cel Noteskin
     for (const row of noteRows) {
       if (row.beat < minVisibleBeat - 0.5 || row.beat > maxVisibleBeat + 0.5) continue;
       const y = receptorY + (row.beat - currentBeat) * pixelsPerBeat;
-      const subColor = getSubdivisionColor(row.beat);
+      const tier = getBeatSubdivision(row.beat);
+      const arrowSize = Math.min(42, colWidth - 4);
 
       for (let c = 0; c < numCols; c++) {
         const ch = row.arrows[c];
-        if (!ch || ch === '0') continue;
+        if (!ch || ch === '0' || ch === '3') continue;
 
         const x = c * colWidth + colWidth / 2;
-        const radius = Math.min(18, colWidth / 2 - 4);
 
         if (ch === '1' || ch === '2' || ch === '4') {
-          // Tap / Hold Head / Roll Head
-          ctx.fillStyle = subColor;
-          ctx.beginPath();
-          ctx.arc(x, y, radius, 0, Math.PI * 2);
-          ctx.fill();
-
-          ctx.strokeStyle = '#FFFFFF';
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-
-          // Symbol inside
-          ctx.fillStyle = '#000000';
-          ctx.font = 'bold 13px sans-serif';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(RECEPTOR_SYMBOLS[c % 4], x, y);
-        } else if (ch === '3') {
-          // Hold Tail Cap
-          ctx.fillStyle = '#8A92A6';
-          ctx.fillRect(x - radius, y - 4, radius * 2, 8);
-          ctx.strokeStyle = '#FFFFFF';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(x - radius, y - 4, radius * 2, 8);
+          drawCelArrow(ctx, (c % 4) as 0 | 1 | 2 | 3, x, y, arrowSize, tier, ch);
         } else if (ch === 'M') {
-          // Mine
-          ctx.fillStyle = '#FF3366';
-          ctx.beginPath();
-          ctx.arc(x, y, radius - 2, 0, Math.PI * 2);
-          ctx.fill();
-
-          ctx.fillStyle = '#FFFFFF';
-          ctx.font = 'bold 11px monospace';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText('M', x, y);
+          drawCelMine(ctx, x, y, arrowSize);
         } else if (ch === 'L') {
-          // Lift
-          ctx.fillStyle = '#E0E2EC';
-          ctx.beginPath();
-          ctx.moveTo(x, y - radius);
-          ctx.lineTo(x + radius, y + radius);
-          ctx.lineTo(x - radius, y + radius);
-          ctx.closePath();
-          ctx.fill();
-
-          ctx.fillStyle = '#000000';
-          ctx.font = 'bold 10px monospace';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText('L', x, y + 2);
+          drawCelLift(ctx, (c % 4) as 0 | 1 | 2 | 3, x, y, arrowSize, tier);
         } else if (ch === 'F') {
-          // Fake
-          ctx.fillStyle = '#5A627A88';
-          ctx.strokeStyle = '#5A627A';
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.arc(x, y, radius - 2, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.stroke();
-
-          ctx.fillStyle = '#FFFFFF';
-          ctx.font = 'bold 11px monospace';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText('F', x, y);
+          drawCelArrow(ctx, (c % 4) as 0 | 1 | 2 | 3, x, y, arrowSize, tier, 'F');
         }
       }
     }
@@ -243,41 +184,27 @@ export const StepchartCanvas: React.FC<StepchartCanvasProps> = ({
       for (const p of proposedPlacements) {
         if (p.beat < minVisibleBeat - 0.5 || p.beat > maxVisibleBeat + 0.5) continue;
         const y = receptorY + (p.beat - currentBeat) * pixelsPerBeat;
+        const tier = getBeatSubdivision(p.beat);
+        const arrowSize = Math.min(42, colWidth - 4);
 
         for (let c = 0; c < numCols; c++) {
           const ch = p.arrows[c];
           if (!ch || ch === '0') continue;
 
           const x = c * colWidth + colWidth / 2;
-          const radius = Math.min(18, colWidth / 2 - 4);
-
-          ctx.fillStyle = '#00E67644';
-          ctx.strokeStyle = '#00E676';
-          ctx.lineWidth = 2;
-          ctx.setLineDash([3, 3]);
-          ctx.beginPath();
-          ctx.arc(x, y, radius, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.stroke();
-          ctx.setLineDash([]);
-
-          ctx.fillStyle = '#00E676';
-          ctx.font = 'bold 12px sans-serif';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(RECEPTOR_SYMBOLS[c % 4], x, y);
+          drawCelArrow(ctx, (c % 4) as 0 | 1 | 2 | 3, x, y, arrowSize, tier, '1', true);
         }
       }
     }
 
-    // 7. Receptor Strike Line
-    ctx.strokeStyle = '#00E5FF';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, receptorY);
-    ctx.lineTo(canvasW, receptorY);
-    ctx.stroke();
-  }, [noteRows, currentBeat, stepsType, proposedPlacements, width, height, numCols, isDoubles]);
+    // 7. Cel Receptors on Canvas Strike Line
+    for (let c = 0; c < numCols; c++) {
+      const x = c * colWidth + colWidth / 2;
+      const arrowSize = Math.min(44, colWidth - 4);
+      const isPressed = !!activeKeys?.has(c);
+      drawCelReceptor(ctx, (c % 4) as 0 | 1 | 2 | 3, x, receptorY, arrowSize, isPressed);
+    }
+  }, [noteRows, currentBeat, stepsType, proposedPlacements, width, height, numCols, isDoubles, activeKeys]);
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -340,22 +267,26 @@ export const StepchartCanvas: React.FC<StepchartCanvasProps> = ({
           return (
             <div
               key={colIdx}
-              className={`receptor flex items-center justify-center font-bold text-xl rounded border-2 transition-all ${
+              className={`receptor flex items-center justify-center rounded border transition-all ${
                 isPressed
-                  ? 'border-white bg-[#00A2FF44] text-white scale-105'
-                  : 'border-[#5A627A] bg-[#161822cc] text-[#8A92A6]'
+                  ? 'border-white bg-[#00A2FF44] scale-105 shadow-[0_0_12px_#00E5FF88]'
+                  : 'border-[#3D445D] bg-[#161822cc]'
               }`}
               style={{
                 width: `${Math.min(56, width / numCols - 6)}px`,
                 height: '48px',
                 minWidth: '48px',
                 minHeight: '48px',
-                borderColor: isPressed ? '#FFFFFF' : colColor,
-                color: isPressed ? '#FFFFFF' : colColor,
+                borderColor: isPressed ? '#FFFFFF' : `${colColor}88`,
               }}
               data-col={colIdx}
             >
-              {RECEPTOR_SYMBOLS[colIdx % 4]}
+              <CelArrow
+                col={(colIdx % 4) as 0 | 1 | 2 | 3}
+                isReceptor={true}
+                isPressed={isPressed}
+                size={34}
+              />
             </div>
           );
         })}
