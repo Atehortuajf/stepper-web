@@ -153,49 +153,37 @@ export const CelArrow: React.FC<CelArrowProps> = ({
 
         {/* Outer Cel Arrow Contour */}
         <polygon
-          points="50,6 94,52 66,52 66,94 34,94 34,52 6,52"
+          points="50,4 98,52 79,72 66,49 66,96 34,96 34,49 21,72 2,52"
           fill={isLift ? 'transparent' : bodyFill}
           stroke={strokeColor}
-          strokeWidth={isLift ? '7' : isReceptor ? '5' : '4'}
+          strokeWidth={isLift ? '7' : isReceptor ? '4' : '3'}
           strokeLinejoin="miter"
           strokeMiterlimit="3"
         />
 
-        {/* Top-Left Specular Highlight Facet */}
-        {!isLift && (
-          <polyline
-            points="50,9 8,52 34,52 34,92"
+        {/* Silver Bevel Rim */}
+        {!isLift && !isReceptor && (
+          <polygon
+            points="50,8 93,51 77,68 64,48 64,93 36,93 36,48 23,68 7,51"
             fill="none"
             stroke={isPressed ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.45)'}
-            strokeWidth="2.5"
-            strokeLinecap="round"
+            strokeWidth="1.5"
+            strokeLinejoin="miter"
           />
         )}
 
-        {/* Bottom-Right Drop-Shadow Bevel */}
-        {!isLift && (
-          <polyline
-            points="50,9 92,52 66,52 66,92"
-            fill="none"
-            stroke="rgba(0,0,0,0.45)"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-          />
-        )}
-
-        {/* Inner Shaft 3-Step Graduation Bars */}
+        {/* Central Diamond Accent */}
         {!isLift && !isReceptor && (
-          <g stroke="rgba(255,255,255,0.35)" strokeWidth="2">
-            <line x1="40" y1="62" x2="60" y2="62" />
-            <line x1="40" y1="72" x2="60" y2="72" />
-            <line x1="40" y1="82" x2="60" y2="82" />
-          </g>
+          <polygon
+            points="50,22 64,48 50,74 36,48"
+            fill="rgba(0,0,0,0.22)"
+          />
         )}
 
         {/* Inner Chevron Hollow Core for Lift */}
         {isLift && (
-          <polyline
-            points="50,18 80,50 60,50 60,86 40,86 40,50 20,50 50,18"
+          <polygon
+            points="50,18 84,52 70,66 58,49 58,86 42,86 42,49 30,66 16,52"
             fill="none"
             stroke="#FFFFFF"
             strokeWidth="2.5"

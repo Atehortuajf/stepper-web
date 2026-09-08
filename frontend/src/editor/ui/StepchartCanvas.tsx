@@ -15,7 +15,6 @@ import {
   drawCelHold,
   drawCelMine,
   drawCelLift,
-  CelArrow,
 } from './noteskins';
 
 export interface StepchartCanvasProps {
@@ -29,8 +28,6 @@ export interface StepchartCanvasProps {
   width?: number;
   height?: number;
 }
-
-const RECEPTOR_COLORS = ['#FF2A55', '#00A2FF', '#9E3CFF', '#FFD000', '#FF2A55', '#00A2FF', '#9E3CFF', '#FFD000'];
 
 export const StepchartCanvas: React.FC<StepchartCanvasProps> = ({
   noteRows,
@@ -254,40 +251,33 @@ export const StepchartCanvas: React.FC<StepchartCanvasProps> = ({
         style={{ width: `${width}px`, height: `${height}px`, maxWidth: '100%' }}
       />
 
-      {/* Target Receptors Bar */}
+      {/* Target Receptors Overlay Bar */}
       <div
-        className="receptors absolute flex items-center justify-center gap-2 pointer-events-none"
-        style={{ top: `${receptorY - 24}px`, width: `${width}px`, maxWidth: '100%' }}
+        className="receptors absolute top-0 left-0 w-full pointer-events-none"
+        style={{ height: `${height}px`, width: `${width}px`, maxWidth: '100%' }}
         data-testid="receptors"
       >
         {Array.from({ length: numCols }).map((_, colIdx) => {
           const isPressed = activeKeys?.has(colIdx);
-          const colColor = RECEPTOR_COLORS[colIdx % 4];
+          const colW = width / numCols;
+          const colX = colIdx * colW;
 
           return (
             <div
               key={colIdx}
-              className={`receptor flex items-center justify-center rounded border transition-all ${
+              className={`receptor absolute flex items-center justify-center transition-all ${
                 isPressed
-                  ? 'border-white bg-[#00A2FF44] scale-105 shadow-[0_0_12px_#00E5FF88]'
-                  : 'border-[#3D445D] bg-[#161822cc]'
+                  ? 'bg-[#00E5FF22] shadow-[0_0_24px_#00E5FF88]'
+                  : ''
               }`}
               style={{
-                width: `${Math.min(56, width / numCols - 6)}px`,
+                left: `${colX}px`,
+                width: `${colW}px`,
+                top: `${receptorY - 24}px`,
                 height: '48px',
-                minWidth: '48px',
-                minHeight: '48px',
-                borderColor: isPressed ? '#FFFFFF' : `${colColor}88`,
               }}
               data-col={colIdx}
-            >
-              <CelArrow
-                col={(colIdx % 4) as 0 | 1 | 2 | 3}
-                isReceptor={true}
-                isPressed={isPressed}
-                size={34}
-              />
-            </div>
+            />
           );
         })}
       </div>
