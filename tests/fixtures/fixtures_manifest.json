@@ -1,0 +1,128 @@
+{
+  "version": "1.0.0",
+  "generated": "2026-09-08T06:53:00Z",
+  "description": "Authoritative fixtures manifest for Stepper-Web test suite",
+  "fixtures": [
+    {
+      "filename": "simple_quarter_notes.sm",
+      "format": "sm",
+      "purpose": "Legacy StepMania 3.9/4.0 format baseline; quarter notes on 120 BPM",
+      "bpm": 140.0,
+      "mode": "dance-single",
+      "difficulty": "Beginner",
+      "meter": 1,
+      "timing_events": {
+        "bpm_changes": 1,
+        "stops": 0,
+        "delays": 0,
+        "warps": 0
+      },
+      "features_covered": ["F1", "F2", "F3", "F4", "F5"]
+    },
+    {
+      "filename": "bpm_changes_stops.sm",
+      "format": "sm",
+      "purpose": "Legacy .sm with multiple BPM changes (140 -> 280 -> 140), stops, holds, and mines",
+      "bpm": 140.0,
+      "mode": "dance-single",
+      "difficulty": "Challenge",
+      "meter": 11,
+      "timing_events": {
+        "bpm_changes": 3,
+        "stops": 2,
+        "delays": 0,
+        "warps": 0
+      },
+      "features_covered": ["F1", "F2", "F5", "F7"]
+    },
+    {
+      "filename": "basic_dance_single.ssc",
+      "format": "ssc",
+      "purpose": "Modern StepMania 5.1/ITGmania format baseline; taps, holds, rolls, mines, lifts, fakes",
+      "bpm": 175.0,
+      "mode": "dance-single",
+      "difficulty": "Hard",
+      "meter": 9,
+      "timing_events": {
+        "bpm_changes": 1,
+        "stops": 0,
+        "delays": 0,
+        "warps": 0
+      },
+      "features_covered": ["F1", "F2", "F3", "F4", "F5"]
+    },
+    {
+      "filename": "dance_double_split_timing.ssc",
+      "format": "ssc",
+      "purpose": "Modern .ssc 8-panel Doubles chart with per-chart split timing (#DELAYS, #WARPS, #BPMS)",
+      "bpm": 150.0,
+      "mode": "dance-double",
+      "difficulty": "Challenge",
+      "meter": 12,
+      "timing_events": {
+        "bpm_changes": 2,
+        "stops": 0,
+        "delays": 1,
+        "warps": 1
+      },
+      "features_covered": ["F1", "F2", "F5", "F7", "F14"]
+    },
+    {
+      "filename": "itl_2026_speed_stream.ssc",
+      "format": "ssc",
+      "purpose": "Authentic ITL Online 2026 speed stream; 180 BPM 16th stream with crossovers, footswitches, jacks, brackets",
+      "bpm": 180.0,
+      "mode": "dance-single",
+      "difficulty": "Challenge",
+      "meter": 15,
+      "timing_events": {
+        "bpm_changes": 1,
+        "stops": 0,
+        "delays": 0,
+        "warps": 0
+      },
+      "features_covered": ["F1", "F2", "F3", "F4", "F5", "F12", "F14", "F19"]
+    },
+    {
+      "filename": "itl_2026_gimmick_chaos.ssc",
+      "format": "ssc",
+      "purpose": "Authentic ITL Online 2026 technical gimmick chart; BPM changes, stops, delays, warps, micro-subdivisions (12th-192nd)",
+      "bpm": 140.0,
+      "mode": "dance-single",
+      "difficulty": "Challenge",
+      "meter": 17,
+      "timing_events": {
+        "bpm_changes": 3,
+        "stops": 2,
+        "delays": 1,
+        "warps": 1
+      },
+      "features_covered": ["F1", "F2", "F3", "F4", "F5", "F7", "F19"]
+    },
+    {
+      "filename": "malformed_and_edge_cases.ssc",
+      "format": "ssc",
+      "purpose": "Edge case and robustness stress testing; escaped chars, recovery rules, orphan tails, unclosed heads, empty measures",
+      "bpm": 120.0,
+      "mode": "dance-single",
+      "difficulty": "Edit",
+      "meter": 5,
+      "timing_events": {
+        "bpm_changes": 1,
+        "stops": 1,
+        "delays": 0,
+        "warps": 0
+      },
+      "features_covered": ["F1", "F2", "F5", "F7"]
+    },
+    {
+      "filename": "sample_click_track.wav",
+      "format": "wav",
+      "purpose": "Valid 44.1 kHz 16-bit PCM mono click-track audio for waveform decode, playback sync, and feature extraction",
+      "sample_rate": 44100,
+      "duration_seconds": 3.429,
+      "channels": 1,
+      "features_covered": ["F6", "F7", "F10"]
+    }
+  ]
+}
