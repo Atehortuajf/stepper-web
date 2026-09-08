@@ -7,13 +7,13 @@
 
 import React, { useEffect, useRef } from 'react';
 import { getSubdivisionColor } from '../engine/subdivisions';
-import type { NoteRow } from '../engine/types';
+import type { NoteRow, StepsType } from '../engine/types';
 import type { Placement } from '../api/stepperApi';
 
 export interface StepchartCanvasProps {
   noteRows: NoteRow[];
   currentBeat: number;
-  stepsType?: 'dance-single' | 'dance-double';
+  stepsType?: StepsType | string;
   proposedPlacements?: Placement[] | null;
   onBeatClick?: (beat: number) => void;
   onColumnClick?: (col: number, beat: number) => void;
@@ -37,7 +37,7 @@ export const StepchartCanvas: React.FC<StepchartCanvasProps> = ({
   height = 440,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const isDoubles = stepsType === 'dance-double';
+  const isDoubles = stepsType === 'dance-double' || stepsType === 'dance-couple';
   const numCols = isDoubles ? 8 : 4;
 
   // Pixels per beat for vertical scrolling view
