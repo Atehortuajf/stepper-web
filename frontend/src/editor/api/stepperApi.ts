@@ -151,10 +151,44 @@ export class StepperApiClient {
     return res.json();
   }
 
+  private engineMode: 'wasm' | 'backend' | 'auto' = 'backend';
+
+  public getEngineMode(): 'wasm' | 'backend' | 'auto' {
+    return this.engineMode;
+  }
+
+  public setEngineMode(mode: 'wasm' | 'backend' | 'auto'): void {
+    this.engineMode = mode;
+  }
+
   /**
-   * Run chart generation on the server.
+   * Run chart generation via in-browser WASM or remote backend.
    */
-  async generate(req: GenerateRequest): Promise<GenerateResponse> {
+  async generate(req: GenerateRequest, waveform?: Float32Array): Promise<GenerateResponse> {
+    if (this.engineMode === 'wasm') {
+      const { wasmInferenceEngine } = await import('./wasmInference');
+      return wasmInferenceEngine.generate(req, waveform);
+    }
+
+    if (this.engineMode === 'backend') {
+      return this.generateViaBackend(req);
+    }
+
+    // Auto mode: Try in-browser WASM first, fallback to backend or rule
+    try {
+      const { wasmInferenceEngine } = await import('./wasmInference');
+      return await wasmInferenceEngine.generate(req, waveform);
+    } catch {
+      try {
+        return await this.generateViaBackend(req);
+      } catch {
+        const { wasmInferenceEngine } = await import('./wasmInference');
+        return wasmInferenceEngine.generateRuleBasedFallback(req, performance.now());
+      }
+    }
+  }
+
+  private async generateViaBackend(req: GenerateRequest): Promise<GenerateResponse> {
     const payload = {
       audio_slice: req.audio_slice ?? null,
       difficulty: req.difficulty,

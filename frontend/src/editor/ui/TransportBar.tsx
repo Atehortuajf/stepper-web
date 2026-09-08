@@ -25,6 +25,9 @@ export interface TransportBarProps {
   fileType?: string;
   backendStatus: string;
   backendDevice: string;
+  engineMode?: 'wasm' | 'backend' | 'auto';
+  wasmStatus?: string;
+  onToggleEngineMode?: () => void;
   isMobileMode: boolean;
   onTogglePlay: () => void;
   onCycleSnap: (direction: 'finer' | 'coarser') => void;
@@ -59,6 +62,9 @@ export const TransportBar: React.FC<TransportBarProps> = ({
   fileType,
   backendStatus,
   backendDevice,
+  engineMode = 'wasm',
+  wasmStatus,
+  onToggleEngineMode,
   isMobileMode,
   onTogglePlay,
   onCycleSnap,
@@ -185,21 +191,34 @@ export const TransportBar: React.FC<TransportBarProps> = ({
 
       {/* Right Section: Actions & Mobile Switcher */}
       <div className="flex items-center gap-1.5 shrink-0">
-        {/* AI Service Status */}
-        <div
-          className="hidden sm:flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#12141D] border border-[#232738] text-[10px]"
-          title={`Stepper AI: ${backendStatus} (${backendDevice})`}
+        {/* AI Inference Engine Mode Selector */}
+        <button
+          type="button"
+          onClick={onToggleEngineMode}
+          className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#12141D] hover:bg-[#1A1E2C] border border-[#232738] hover:border-[#3D445D] text-[10px] cursor-pointer transition-colors"
+          title={`Inference Engine: ${engineMode.toUpperCase()} | Click to toggle between In-Browser WASM and Backend`}
+          data-testid="engine-mode-pill"
         >
           <span
             className={`w-1.5 h-1.5 rounded-full ${
-              backendStatus === 'Online' || backendStatus === 'healthy'
-                ? 'bg-[#00E676]'
+              engineMode === 'wasm'
+                ? wasmStatus === 'ready' || !wasmStatus
+                  ? 'bg-[#00E5FF] shadow-[0_0_6px_#00e5ff88]'
+                  : 'bg-[#FFD000]'
+                : backendStatus === 'Online' || backendStatus === 'healthy'
+                ? 'bg-[#00E676] shadow-[0_0_6px_#00e67688]'
                 : 'bg-[#FFD000]'
             }`}
           />
-          <span className="text-[#8A92A6] hidden lg:inline">AI:</span>
-          <span className="font-bold text-[#C0C4D6]">{backendDevice || backendStatus}</span>
-        </div>
+          <span className="text-[#8A92A6]">ENGINE:</span>
+          <span className="font-bold text-[#C0C4D6]">
+            {engineMode === 'wasm'
+              ? wasmStatus && wasmStatus !== 'ready'
+                ? wasmStatus
+                : '⚡ WASM (In-Browser)'
+              : `🐍 Backend (${backendDevice || 'API'})`}
+          </span>
+        </button>
 
         {/* Open Audio / Simfile */}
         <button

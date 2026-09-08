@@ -130,6 +130,8 @@ export function App() {
   // Backend Health / Device state
   const [backendStatus, setBackendStatus] = useState<string>('Checking...');
   const [backendDevice, setBackendDevice] = useState<string>('');
+  const [engineMode, setEngineMode] = useState<'wasm' | 'backend' | 'auto'>('wasm');
+  const [wasmStatus, setWasmStatus] = useState<string>('Initializing WASM...');
 
   // 16-D Technique Conditioning state
   const [techVector, setTechVector] = useState<TechVectorDict>(() => createDefaultTechVector());
@@ -210,12 +212,25 @@ export function App() {
     };
   }, [isPlaying, audioEngine]);
 
-  // Initial synthetic audio and backend health check
+  // Initial synthetic audio, backend health check, and WASM preloading
   useEffect(() => {
     if (!audioEngine.audioBuffer) {
       const initialBpm = timingEngine.initialBpm || 140;
       audioEngine.generateSyntheticTrack(initialBpm, 45);
     }
+
+    // Initialize WASM engine in background
+    stepperApi.setEngineMode('wasm');
+    import('./editor/api').then(({ wasmInferenceEngine }) => {
+      wasmInferenceEngine
+        .initialize((pct) => setWasmStatus(`WASM ${pct}%`))
+        .then((ready) => {
+          setWasmStatus(ready ? 'ready' : 'WASM (Rule Fallback)');
+        })
+        .catch(() => {
+          setWasmStatus('WASM (Rule Fallback)');
+        });
+    });
 
     stepperApi
       .checkHealth()
@@ -705,6 +720,7 @@ export function App() {
     const rawVector = techVectorToArray(techVector);
 
     let audioSliceBase64: string | null = null;
+    let waveformSlice: Float32Array | undefined = undefined;
     if (audioEngine.channelData && audioEngine.channelData.length > 0) {
       try {
         const startSec = Math.max(0, timingEngine.beatToSeconds(startBeat));
@@ -713,6 +729,15 @@ export function App() {
         const endSample = Math.min(audioEngine.channelData[0].length, Math.floor(endSec * audioEngine.sampleRate));
 
         if (endSample > startSample) {
+          const ch0 = audioEngine.channelData[0];
+          const ch1 = audioEngine.channelData.length > 1 ? audioEngine.channelData[1] : ch0;
+          const sliceLen = endSample - startSample;
+          const mono = new Float32Array(sliceLen);
+          for (let i = 0; i < sliceLen; i++) {
+            mono[i] = (ch0[startSample + i] + ch1[startSample + i]) * 0.5;
+          }
+          waveformSlice = mono;
+
           const sliced = audioEngine.channelData.map((ch) => ch.slice(startSample, endSample));
           const wavBuf = encodeWAV(sliced, audioEngine.sampleRate);
           const bytes = new Uint8Array(wavBuf);
@@ -728,15 +753,18 @@ export function App() {
     }
 
     try {
-      const resp = await stepperApi.generate({
-        audio_slice: audioSliceBase64,
-        difficulty: difficultyMeter,
-        tech_vector: rawVector,
-        start_beat: startBeat,
-        num_beats: numBeats,
-        bpm,
-        threshold: 0.5,
-      });
+      const resp = await stepperApi.generate(
+        {
+          audio_slice: audioSliceBase64,
+          difficulty: difficultyMeter,
+          tech_vector: rawVector,
+          start_beat: startBeat,
+          num_beats: numBeats,
+          bpm,
+          threshold: 0.5,
+        },
+        waveformSlice
+      );
 
       setProposedPlacements(resp.placements);
       setGenerationLatency(resp.latency_ms);
@@ -870,6 +898,14 @@ export function App() {
     handleSeekDeltaSnap(1);
   };
 
+  const handleToggleEngineMode = useCallback(() => {
+    setEngineMode((prev) => {
+      const next = prev === 'wasm' ? 'backend' : 'wasm';
+      stepperApi.setEngineMode(next);
+      return next;
+    });
+  }, []);
+
   return (
     <div className="flex flex-col h-screen w-screen max-w-full overflow-x-hidden bg-[#0C0D12] text-[#E0E2EC] font-mono text-xs select-none">
       {/* Hidden file input */}
@@ -899,6 +935,9 @@ export function App() {
         fileType={simfile.fileType}
         backendStatus={backendStatus}
         backendDevice={backendDevice}
+        engineMode={engineMode}
+        wasmStatus={wasmStatus}
+        onToggleEngineMode={handleToggleEngineMode}
         isMobileMode={isMobileMode}
         onTogglePlay={handleTogglePlay}
         onCycleSnap={(dir) => setSubdivisionSnap((s) => cycleSubdivision(s, dir))}
