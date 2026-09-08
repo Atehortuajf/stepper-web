@@ -54,7 +54,7 @@ describe('16-D Technique Conditioning Taxonomy & Functions', () => {
       'footswitch',
       'doublestep',
       'bracket',
-      'bracket_under',
+      'burst',
       'bracket_crossover',
       'sideswitch',
       'kickswitch',

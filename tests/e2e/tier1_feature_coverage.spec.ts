@@ -499,7 +499,7 @@ test.describe('Tier 1: Feature Coverage (F1 to F20)', () => {
   // F12: 16-D Technique Conditioning Sliders
   test.describe('F12: 16-D Technique Conditioning Sliders', () => {
     const TECH_DIMENSIONS = [
-      'crossover', 'footswitch', 'doublestep', 'bracket', 'bracket_under',
+      'crossover', 'footswitch', 'doublestep', 'bracket', 'burst',
       'bracket_crossover', 'sideswitch', 'kickswitch', 'holdswitch', 'jack',
       'jump_jack', 'split_jack', 'bracket_tap', 'complex_rhythm', 'stream_stamina', 'no_tech'
     ];

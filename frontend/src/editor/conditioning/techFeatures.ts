@@ -9,7 +9,7 @@ export const TECH_TAG_KEYS = [
   'footswitch',         // 2. FS / Footswitch
   'doublestep',         // 3. DS / Double step
   'bracket',            // 4. BR / Bracket
-  'bracket_under',      // 5. BU / Bracket under (cross-under)
+  'burst',              // 5. BU / Burst (speed bursts)
   'bracket_crossover',  // 6. BXF / Bracket crossover
   'sideswitch',         // 7. SS / Sideswitch
   'kickswitch',         // 8. KS / Kickswitch
@@ -63,12 +63,12 @@ export const TECH_FEATURE_METAS: Record<TechTagKey, TechFeatureMeta> = {
     category: 'Brackets',
     description: 'Single foot hitting two adjacent arrows simultaneously',
   },
-  bracket_under: {
-    key: 'bracket_under',
-    label: 'Bracket Under',
+  burst: {
+    key: 'burst',
+    label: 'Burst',
     shorthand: 'BU',
-    category: 'Brackets',
-    description: 'Bracket step executed under or behind the other leg',
+    category: 'Rhythm & Stream',
+    description: 'High-density speed burst (24th/32nd note runs or mini-streams)',
   },
   bracket_crossover: {
     key: 'bracket_crossover',
@@ -157,7 +157,7 @@ export function createDefaultTechVector(): TechVectorDict {
     footswitch: 0.0,
     doublestep: 0.0,
     bracket: 0.0,
-    bracket_under: 0.0,
+    burst: 0.0,
     bracket_crossover: 0.0,
     sideswitch: 0.0,
     kickswitch: 0.0,
@@ -211,11 +211,10 @@ export const TECH_PRESETS: TechPreset[] = [
   {
     id: 'brackets_doubles',
     name: 'Brackets & Doubles',
-    description: 'High-density multi-arrow brackets, bracket unders, crossovers, and double steps.',
+    description: 'High-density multi-arrow brackets, crossovers, and double steps.',
     vector: {
       ...createDefaultTechVector(),
       bracket: 0.85,
-      bracket_under: 0.70,
       bracket_crossover: 0.70,
       bracket_tap: 0.65,
       doublestep: 0.60,
