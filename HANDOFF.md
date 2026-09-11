@@ -1,3 +1,5 @@
+> **Historical record — superseded for current status.** Start with [MVP_HANDOFF.md](MVP_HANDOFF.md). Prior completion/quality claims below have not been revalidated and must not be used as acceptance evidence.
+
 # 🚀 Stepper Project: Complete Orchestrator Master Handoff
 
 > [!IMPORTANT]

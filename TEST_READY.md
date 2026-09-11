@@ -1,3 +1,5 @@
+> **Historical record — superseded for current status.** Start with [MVP_HANDOFF.md](MVP_HANDOFF.md). Prior completion/quality claims below have not been revalidated and must not be used as acceptance evidence.
+
 # TEST_READY: Stepper-Web E2E Test Suite & Test Infrastructure
 
 **Project:** Stepper-Web Dance Stepchart Editor & AI Inference Platform  
