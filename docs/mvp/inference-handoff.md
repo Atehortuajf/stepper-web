@@ -18,7 +18,7 @@
 - Python DSP tests: 9 tests passed using the repository audit environment and local Stepper dependency.
 - For the deterministic full-tensor fixture, browser versus PyTorch mean absolute error is `0.00005444` and maximum absolute error is `0.01984133`. The fixture uses a nonzero slice origin and variable per-tick times; a separate 1 kHz signal selects Mel band 33 in both implementations.
 - TypeScript and Vite production build passed.
-- The backend generate/latency API suites were stopped after more than 90 seconds in model initialization even with `OMP_NUM_THREADS=2`; parent-owned model provenance tests cover that separate lifecycle.
+- Full backend suite: 35 tests passed in 1.66 seconds with `OMP_NUM_THREADS=2` outside the filesystem sandbox. FastAPI `TestClient` requires a local event-loop socket, which explains the earlier apparent hang under sandbox restrictions.
 
 ## Contract for callers
 

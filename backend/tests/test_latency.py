@@ -7,11 +7,10 @@ Enforces:
 """
 
 import time
-import pytest
 from fastapi.testclient import TestClient
 
 
-def test_latency_16_beat_chunk_benchmark(client: TestClient):
+def test_latency_16_beat_chunk_benchmark(client: TestClient, sample_wav_base64: str):
     """
     Latency benchmark: POST /api/generate must complete in strictly < 1.5 seconds (1500 ms)
     for a 16-beat chunk (4 measures).
@@ -22,6 +21,7 @@ def test_latency_16_beat_chunk_benchmark(client: TestClient):
         "bpm": 140.0,
         "difficulty": 3,
         "tech_vector": [0.0] * 16,
+        "audio_slice": sample_wav_base64,
     }
 
     # Warm-up call
@@ -41,7 +41,7 @@ def test_latency_16_beat_chunk_benchmark(client: TestClient):
     assert server_latency_ms < 1500.0, f"Server latency exceeded! Expected < 1500ms, got {server_latency_ms:.1f}ms"
 
 
-def test_latency_full_chart_benchmark(client: TestClient):
+def test_latency_full_chart_benchmark(client: TestClient, sample_wav_base64: str):
     """
     Latency benchmark: POST /api/generate must complete in strictly < 5.0 seconds (5000 ms)
     for a full chart chunk (64 beats = 16 measures).
@@ -52,6 +52,7 @@ def test_latency_full_chart_benchmark(client: TestClient):
         "bpm": 140.0,
         "difficulty": 3,
         "tech_vector": [0.0] * 16,
+        "audio_slice": sample_wav_base64,
     }
 
     start = time.perf_counter()

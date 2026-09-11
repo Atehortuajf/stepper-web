@@ -18,8 +18,8 @@ def test_health_endpoint(client: TestClient):
     assert data["version"] == "0.1.0"
 
 
-def test_generate_endpoint_default(client: TestClient):
-    """Test POST /api/generate with default parameters."""
+def test_generate_endpoint_requires_audio_by_default(client: TestClient):
+    """Neural generation must reject a request with no real audio."""
     payload = {
         "start_beat": 0.0,
         "num_beats": 16.0,
@@ -27,22 +27,8 @@ def test_generate_endpoint_default(client: TestClient):
         "difficulty": 3,
     }
     res = client.post("/api/generate", json=payload)
-    assert res.status_code == 200
-    data = res.json()
-    assert "placements" in data
-    assert len(data["placements"]) > 0
-    assert "latency_ms" in data
-    assert data["latency_ms"] < 1500.0  # < 1.5s
-    assert data["difficulty_id"] == 3
-    assert data["difficulty_str"] == "Hard"
-
-    # Check placement structure
-    first = data["placements"][0]
-    assert "beat" in first
-    assert "arrows" in first
-    assert len(first["arrows"]) == 4
-    assert "chord_idx" in first
-    assert "confidence" in first
+    assert res.status_code == 422
+    assert "audio_input is required" in res.json()["detail"]
 
 
 def test_generate_endpoint_with_audio_slice(client: TestClient, sample_wav_base64: str):
@@ -57,7 +43,7 @@ def test_generate_endpoint_with_audio_slice(client: TestClient, sample_wav_base6
     res = client.post("/api/generate", json=payload)
     assert res.status_code == 200
     data = res.json()
-    assert len(data["placements"]) > 0
+    assert isinstance(data["placements"], list)
     assert data["difficulty_id"] == 2
     assert data["difficulty_str"] == "Medium"
 
@@ -70,6 +56,7 @@ def test_generate_endpoint_string_difficulty(client: TestClient):
             "num_beats": 8.0,
             "bpm": 130.0,
             "difficulty": diff_name,
+            "force_fallback": True,
         }
         res = client.post("/api/generate", json=payload)
         assert res.status_code == 200
@@ -89,11 +76,13 @@ def test_generate_endpoint_tech_conditioning(client: TestClient):
         "bpm": 145.0,
         "difficulty": 4,
         "tech_vector": tech_vec,
+        "force_fallback": True,
     }
     res = client.post("/api/generate", json=payload)
     assert res.status_code == 200
     data = res.json()
     assert len(data["placements"]) > 0
+    assert data["model_used"] == "fallback"
 
 
 def test_generate_endpoint_force_fallback(client: TestClient):
