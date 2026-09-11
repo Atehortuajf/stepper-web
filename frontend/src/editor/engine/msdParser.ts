@@ -13,8 +13,66 @@ import type {
   NoteRow,
   StepsType,
   TimeSignature,
+  TimingData,
+  TimingTagName,
   Simfile,
 } from './types';
+
+const TIMING_TAGS = new Set<TimingTagName>([
+  'OFFSET', 'BPMS', 'STOPS', 'DELAYS', 'WARPS', 'TIMESIGNATURES',
+  'TICKCOUNTS', 'COMBOS', 'SPEEDS', 'SCROLLS', 'FAKES', 'LABELS',
+]);
+
+function markTimingTag(timing: TimingData, name: TimingTagName): void {
+  if (!timing.presentTags) timing.presentTags = [];
+  if (!timing.presentTags.includes(name)) timing.presentTags.push(name);
+}
+
+function cloneTiming(timing: TimingData): TimingData {
+  return {
+    ...timing,
+    bpms: [...timing.bpms], stops: [...timing.stops], delays: [...timing.delays],
+    warps: [...timing.warps], timeSignatures: [...timing.timeSignatures],
+    tickcounts: timing.tickcounts ? [...timing.tickcounts] : undefined,
+    combos: timing.combos ? [...timing.combos] : undefined,
+    speeds: timing.speeds ? [...timing.speeds] : undefined,
+    scrolls: timing.scrolls ? [...timing.scrolls] : undefined,
+    fakes: timing.fakes ? [...timing.fakes] : undefined,
+    labels: timing.labels ? [...timing.labels] : undefined,
+    presentTags: [],
+  };
+}
+
+function parseTimingTag(timing: TimingData, name: TimingTagName, val: string): void {
+  markTimingTag(timing, name);
+  const pairs = () => parseBeatValueList(val);
+  switch (name) {
+    case 'OFFSET': { const n = parseFloat(val); if (!Number.isNaN(n)) timing.offset = n; break; }
+    case 'BPMS': timing.bpms = pairs().map(({ beat, value }) => ({ beat, bpm: value })); break;
+    case 'STOPS': timing.stops = pairs().map(({ beat, value }) => ({ beat, duration: value })); break;
+    case 'DELAYS': timing.delays = pairs().map(({ beat, value }) => ({ beat, duration: value })); break;
+    case 'WARPS': timing.warps = pairs().map(({ beat, value }) => ({ beat, duration: value })); break;
+    case 'TIMESIGNATURES': timing.timeSignatures = parseTimeSignatures(val); break;
+    case 'TICKCOUNTS': timing.tickcounts = pairs().map(({ beat, value }) => ({ beat, ticks: value })); break;
+    case 'SCROLLS': timing.scrolls = pairs().map(({ beat, value }) => ({ beat, ratio: value })); break;
+    case 'FAKES': timing.fakes = pairs().map(({ beat, value }) => ({ beat, duration: value })); break;
+    case 'COMBOS': timing.combos = val ? val.split(',').flatMap((item) => {
+      const values = item.split('=').map(Number);
+      const [beat, hit] = values;
+      const miss = values.length === 2 ? hit : values[2];
+      return values.length >= 2 && [beat, hit, miss].every(Number.isFinite) ? [{ beat, hit, miss }] : [];
+    }) : []; break;
+    case 'SPEEDS': timing.speeds = val ? val.split(',').flatMap((item) => {
+      const [beat, ratio, delay, unit] = item.split('=').map(Number);
+      return [beat, ratio, delay, unit].every(Number.isFinite) ? [{ beat, ratio, delay, unit }] : [];
+    }) : []; break;
+    case 'LABELS': timing.labels = val ? val.split(',').flatMap((item) => {
+      const equals = item.indexOf('=');
+      const beat = Number(item.slice(0, equals));
+      return equals > 0 && Number.isFinite(beat) ? [{ beat, label: item.slice(equals + 1) }] : [];
+    }) : []; break;
+  }
+}
 
 export interface MSDTag {
   name: string;
@@ -599,6 +657,10 @@ function parseSSCTags(simfile: Simfile, tags: MSDTag[]): void {
       // Song-level headers
       simfile.metadata[tag.name] = val;
 
+      if (TIMING_TAGS.has(tag.name as TimingTagName)) {
+        parseTimingTag(simfile.timing, tag.name as TimingTagName, val);
+        continue;
+      }
       switch (tag.name) {
         case 'VERSION': {
           const ver = parseFloat(val);
@@ -644,11 +706,6 @@ function parseSSCTags(simfile: Simfile, tags: MSDTag[]): void {
         case 'MUSIC':
           simfile.music = val;
           break;
-        case 'OFFSET': {
-          const offset = parseFloat(val);
-          if (!Number.isNaN(offset)) simfile.timing.offset = offset;
-          break;
-        }
         case 'SAMPLESTART': {
           const ss = parseFloat(val);
           if (!Number.isNaN(ss)) simfile.sampleStart = ss;
@@ -665,37 +722,20 @@ function parseSSCTags(simfile: Simfile, tags: MSDTag[]): void {
         case 'DISPLAYBPM':
           simfile.displayBpm = val;
           break;
-        case 'BPMS': {
-          const bpms = parseBeatValueList(val).map((p) => ({ beat: p.beat, bpm: p.value }));
-          if (bpms.length > 0) simfile.timing.bpms = bpms;
-          break;
-        }
-        case 'STOPS': {
-          const stops = parseBeatValueList(val).map((p) => ({ beat: p.beat, duration: p.value }));
-          simfile.timing.stops = stops;
-          break;
-        }
-        case 'DELAYS': {
-          const delays = parseBeatValueList(val).map((p) => ({ beat: p.beat, duration: p.value }));
-          simfile.timing.delays = delays;
-          break;
-        }
-        case 'WARPS': {
-          const warps = parseBeatValueList(val).map((p) => ({ beat: p.beat, duration: p.value }));
-          simfile.timing.warps = warps;
-          break;
-        }
-        case 'TIMESIGNATURES': {
-          const ts = parseTimeSignatures(val);
-          if (ts.length > 0) simfile.timing.timeSignatures = ts;
-          break;
-        }
         default:
           simfile.extraTags![tag.name] = val;
           break;
       }
     } else {
       // Per-chart headers within #NOTEDATA:;
+      if (TIMING_TAGS.has(tag.name as TimingTagName)) {
+        if (!currentChart.timing) {
+          currentChart.inheritedTiming = cloneTiming(simfile.timing);
+          currentChart.timing = cloneTiming(simfile.timing);
+        }
+        parseTimingTag(currentChart.timing, tag.name as TimingTagName, val);
+        continue;
+      }
       switch (tag.name) {
         case 'STEPSTYPE':
           currentChart.stepsType = val as StepsType;
@@ -729,41 +769,6 @@ function parseSSCTags(simfile: Simfile, tags: MSDTag[]): void {
           currentChart.music = val;
           break;
 
-        // Split Timing Overrides
-        case 'OFFSET': {
-          const off = parseFloat(val);
-          if (!Number.isNaN(off)) {
-            currentChart.timing = currentChart.timing || { ...simfile.timing };
-            currentChart.timing.offset = off;
-          }
-          break;
-        }
-        case 'BPMS': {
-          const bpms = parseBeatValueList(val).map((p) => ({ beat: p.beat, bpm: p.value }));
-          if (bpms.length > 0) {
-            currentChart.timing = currentChart.timing || { ...simfile.timing };
-            currentChart.timing.bpms = bpms;
-          }
-          break;
-        }
-        case 'STOPS': {
-          const stops = parseBeatValueList(val).map((p) => ({ beat: p.beat, duration: p.value }));
-          currentChart.timing = currentChart.timing || { ...simfile.timing };
-          currentChart.timing.stops = stops;
-          break;
-        }
-        case 'DELAYS': {
-          const delays = parseBeatValueList(val).map((p) => ({ beat: p.beat, duration: p.value }));
-          currentChart.timing = currentChart.timing || { ...simfile.timing };
-          currentChart.timing.delays = delays;
-          break;
-        }
-        case 'WARPS': {
-          const warps = parseBeatValueList(val).map((p) => ({ beat: p.beat, duration: p.value }));
-          currentChart.timing = currentChart.timing || { ...simfile.timing };
-          currentChart.timing.warps = warps;
-          break;
-        }
         case 'NOTES': {
           const panelCount = getPanelCount(currentChart.stepsType);
           const parsed = parseNoteData(val, panelCount);

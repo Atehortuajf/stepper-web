@@ -417,4 +417,153 @@ describe('Lossless Round-Trip: Modern .ssc Format & Split Timing', () => {
     expect(reSim.charts[0].noteRows[0].arrows).toBe('10000001');
     expect(reSim.charts[0].noteRows[3].arrows).toBe('00011000');
   });
+
+  it('preserves SSC asset, gimmick timing, labels, and unknown tags', () => {
+    const source = `#VERSION:0.83;
+#TITLE:Audit;
+#ARTIST:Audit;
+#MUSIC:audio.ogg;
+#OFFSET:0;
+#BPMS:0=120,8=150;
+#STOPS:4=0.5;
+#SPEEDS:0=1=0=0,8=2=0=0;
+#SCROLLS:0=1,12=0.5;
+#JACKET:jacket.png;
+#PREVIEWVID:preview.mp4;
+#BGCHANGES:0=background.png=1.000=0=0=0=StretchNoLoop====;
+#LABELS:0=Intro,8=Chorus;
+#CUSTOMTAG:keep\\;this;
+#NOTEDATA:;
+#STEPSTYPE:dance-single;
+#DIFFICULTY:Challenge;
+#METER:10;
+#NOTES:
+1000
+0100
+0010
+0001
+;`;
+    const first = parseSimfile(source, 'ssc');
+    const output = serializeSSC(first);
+    const second = parseSimfile(output, 'ssc');
+
+    expect(output).toContain('#JACKET:jacket.png;');
+    expect(output).toContain('#PREVIEWVID:preview.mp4;');
+    expect(output).toContain('#BGCHANGES:0=background.png=1.000=0=0=0=StretchNoLoop====;');
+    expect(second.timing.speeds).toEqual(first.timing.speeds);
+    expect(second.timing.scrolls).toEqual(first.timing.scrolls);
+    expect(second.timing.labels).toEqual(first.timing.labels);
+    expect(second.extraTags?.JACKET).toBe('jacket.png');
+    expect(second.extraTags?.CUSTOMTAG).toBe('keep;this');
+  });
+
+  it('escapes MSD delimiters in edited metadata', () => {
+    const parsed = parseSimfile(SAMPLE_SSC, 'ssc');
+    parsed.title = 'A; #ARTIST:Injected \\ mix';
+    parsed.charts[0].description = 'Colon: semicolon; hash# slash\\';
+
+    const reparsed = parseSimfile(serializeSSC(parsed), 'ssc');
+    expect(reparsed.title).toBe(parsed.title);
+    expect(reparsed.artist).toBe('Tatsh');
+    expect(reparsed.charts[0].description).toBe(parsed.charts[0].description);
+  });
+
+  it('retains chart-only time signatures', () => {
+    const parsed = parseSimfile(SAMPLE_SSC, 'ssc');
+    parsed.charts[0].timing = {
+      ...parsed.timing,
+      timeSignatures: [{ beat: 0, numerator: 3, denominator: 4 }],
+    };
+    const output = serializeSSC(parsed);
+    const chartBlock = output.slice(output.indexOf('#NOTEDATA'));
+    expect(chartBlock).toContain('#TIMESIGNATURES:0.000000=3=4;');
+    expect(parseSimfile(output, 'ssc').charts[0].timing?.timeSignatures).toEqual([
+      { beat: 0, numerator: 3, denominator: 4 },
+    ]);
+  });
+
+  it('distinguishes inherited timing from explicit empty chart overrides', () => {
+    const source = `#VERSION:0.83;
+#TITLE:Empty override;
+#BPMS:0=120;
+#STOPS:4=0.5;
+#NOTEDATA:;
+#STEPSTYPE:dance-single;
+#DIFFICULTY:Hard;
+#METER:8;
+#STOPS:;
+#DELAYS:;
+#NOTES:
+1000
+0000
+0000
+0000
+;`;
+    const parsed = parseSimfile(source, 'ssc');
+    expect(parsed.charts[0].timing?.stops).toEqual([]);
+    expect(parsed.charts[0].timing?.presentTags).toEqual(['STOPS', 'DELAYS']);
+
+    const output = serializeSSC(parsed);
+    const chartBlock = output.slice(output.indexOf('#NOTEDATA'));
+    expect(chartBlock).toContain('#STOPS:;');
+    expect(chartBlock).toContain('#DELAYS:;');
+    const reparsed = parseSimfile(output, 'ssc');
+    expect(reparsed.charts[0].timing?.stops).toEqual([]);
+    expect(reparsed.charts[0].timing?.delays).toEqual([]);
+    expect(reparsed.charts[0].timing?.presentTags).toEqual(['STOPS', 'DELAYS']);
+  });
+
+  it('keeps edits made after parsing an OFFSET-only chart without freezing inherited song timing', () => {
+    const source = `#VERSION:0.83;
+#TITLE:Offset only;
+#BPMS:0=120;
+#TIMESIGNATURES:0=4=4;
+#NOTEDATA:;
+#STEPSTYPE:dance-single;
+#DIFFICULTY:Hard;
+#METER:8;
+#OFFSET:-0.1;
+#NOTES:
+1000
+0000
+0000
+0000
+;`;
+    const edited = parseSimfile(source, 'ssc');
+    edited.charts[0].timing!.bpms = [{ beat: 0, bpm: 150 }];
+    edited.charts[0].timing!.timeSignatures = [{ beat: 0, numerator: 3, denominator: 4 }];
+    const editedOutput = serializeSSC(edited);
+    const editedChart = parseSimfile(editedOutput, 'ssc').charts[0];
+    expect(editedChart.timing?.bpms).toEqual([{ beat: 0, bpm: 150 }]);
+    expect(editedChart.timing?.timeSignatures).toEqual([{ beat: 0, numerator: 3, denominator: 4 }]);
+
+    const globalEdit = parseSimfile(source, 'ssc');
+    globalEdit.timing.bpms = [{ beat: 0, bpm: 180 }];
+    const chartBlock = serializeSSC(globalEdit).slice(serializeSSC(globalEdit).indexOf('#NOTEDATA'));
+    expect(chartBlock).toContain('#OFFSET:-0.100000;');
+    expect(chartBlock).not.toContain('#BPMS:');
+  });
+
+  it('accepts StepMania two-field COMBOS entries and defaults misses to hits', () => {
+    const source = `#VERSION:0.83;
+#TITLE:Combos;
+#BPMS:0=120;
+#COMBOS:0=1,16=2=3;
+#NOTEDATA:;
+#STEPSTYPE:dance-single;
+#DIFFICULTY:Hard;
+#METER:8;
+#NOTES:
+1000
+0000
+0000
+0000
+;`;
+    const parsed = parseSimfile(source, 'ssc');
+    expect(parsed.timing.combos).toEqual([
+      { beat: 0, hit: 1, miss: 1 },
+      { beat: 16, hit: 2, miss: 3 },
+    ]);
+    expect(parseSimfile(serializeSSC(parsed), 'ssc').timing.combos).toEqual(parsed.timing.combos);
+  });
 });

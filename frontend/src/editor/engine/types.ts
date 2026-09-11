@@ -90,6 +90,20 @@ export interface LabelEvent {
   label: string;
 }
 
+export type TimingTagName =
+  | 'OFFSET'
+  | 'BPMS'
+  | 'STOPS'
+  | 'DELAYS'
+  | 'WARPS'
+  | 'TIMESIGNATURES'
+  | 'TICKCOUNTS'
+  | 'COMBOS'
+  | 'SPEEDS'
+  | 'SCROLLS'
+  | 'FAKES'
+  | 'LABELS';
+
 export interface TimingData {
   offset: number; // in seconds
   bpms: BpmChange[];
@@ -103,6 +117,8 @@ export interface TimingData {
   scrolls?: ScrollEvent[];
   fakes?: FakeEvent[];
   labels?: LabelEvent[];
+  /** Tags explicitly present in the source, including intentional empty overrides. */
+  presentTags?: TimingTagName[];
 }
 
 export interface NoteRow {
@@ -135,6 +151,8 @@ export interface Chart {
   chartStyle?: string;
   music?: string;
   timing?: TimingData; // Split timing override if defined
+  /** Song timing copied when the first split tag was parsed; used to detect later chart edits. */
+  inheritedTiming?: TimingData;
   notes: Measure[]; // Measure array representation
   noteRows: NoteRow[]; // Flat row representation on 192-tick grid
   holds: HoldNote[]; // Paired hold/roll intervals

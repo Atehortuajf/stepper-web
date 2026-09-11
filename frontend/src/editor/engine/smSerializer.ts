@@ -15,7 +15,18 @@ import type {
   Simfile,
   StopEvent,
   WarpEvent,
+  TimingData,
+  TimingTagName,
 } from './types';
+
+export function escapeMSDParameter(value: string): string {
+  return String(value ?? '').replace(/([\\;#])/g, '\\$1').replace(/:/g, '\\:');
+}
+
+function escapeUnknownTagValue(value: string): string {
+  // Colons may delimit parameters in unknown tags, so retain them structurally.
+  return String(value ?? '').replace(/([\\;#])/g, '\\$1');
+}
 
 
 export function formatFloat(val: number): string {
@@ -51,6 +62,31 @@ export function formatWarpList(warps: WarpEvent[]): string {
     .map((w) => `${formatFloat(w.beat)}=${formatFloat(w.duration)}`)
     .join(',');
 }
+
+function formatTimeSignatures(t: TimingData): string {
+  return (t.timeSignatures || []).map((x) => `${formatFloat(x.beat)}=${x.numerator}=${x.denominator}`).join(',');
+}
+
+function formatTimingTag(name: TimingTagName, t: TimingData): string {
+  switch (name) {
+    case 'OFFSET': return formatFloat(t.offset);
+    case 'BPMS': return t.bpms?.length ? formatBpmList(t.bpms) : '';
+    case 'STOPS': return formatStopList(t.stops || []);
+    case 'DELAYS': return formatDelayList(t.delays || []);
+    case 'WARPS': return formatWarpList(t.warps || []);
+    case 'TIMESIGNATURES': return formatTimeSignatures(t);
+    case 'TICKCOUNTS': return (t.tickcounts || []).map((x) => `${formatFloat(x.beat)}=${x.ticks}`).join(',');
+    case 'COMBOS': return (t.combos || []).map((x) => `${formatFloat(x.beat)}=${x.hit}=${x.miss}`).join(',');
+    case 'SPEEDS': return (t.speeds || []).map((x) => `${formatFloat(x.beat)}=${formatFloat(x.ratio)}=${formatFloat(x.delay)}=${x.unit}`).join(',');
+    case 'SCROLLS': return (t.scrolls || []).map((x) => `${formatFloat(x.beat)}=${formatFloat(x.ratio)}`).join(',');
+    case 'FAKES': return (t.fakes || []).map((x) => `${formatFloat(x.beat)}=${formatFloat(x.duration)}`).join(',');
+    case 'LABELS': return (t.labels || []).map((x) => `${formatFloat(x.beat)}=${escapeMSDParameter(x.label)}`).join(',');
+  }
+}
+
+const OPTIONAL_TIMING_TAGS: TimingTagName[] = [
+  'TICKCOUNTS', 'COMBOS', 'SPEEDS', 'SCROLLS', 'FAKES', 'LABELS',
+];
 
 export function computeRadarValues(notes: NoteRow[], totalBeats = 64.0): number[] {
   let taps = 0;
@@ -130,23 +166,23 @@ export function serializeChartNotes(chart: Chart): string {
 export function serializeSM(simfile: Simfile): string {
   const t = simfile.timing;
   const headerLines = [
-    `#TITLE:${simfile.title};`,
-    `#SUBTITLE:${simfile.subtitle};`,
-    `#ARTIST:${simfile.artist};`,
-    `#TITLETRANSLIT:${simfile.titleTranslit || ''};`,
-    `#SUBTITLETRANSLIT:${simfile.subtitleTranslit || ''};`,
-    `#ARTISTTRANSLIT:${simfile.artistTranslit || ''};`,
-    `#GENRE:${simfile.genre || ''};`,
-    `#CREDIT:${simfile.credit || ''};`,
-    `#BANNER:${simfile.banner || ''};`,
-    `#BACKGROUND:${simfile.background || ''};`,
-    `#LYRICSPATH:${simfile.lyricsPath || ''};`,
-    `#CDTITLE:${simfile.cdTitle || ''};`,
-    `#MUSIC:${simfile.music || ''};`,
+    `#TITLE:${escapeMSDParameter(simfile.title)};`,
+    `#SUBTITLE:${escapeMSDParameter(simfile.subtitle)};`,
+    `#ARTIST:${escapeMSDParameter(simfile.artist)};`,
+    `#TITLETRANSLIT:${escapeMSDParameter(simfile.titleTranslit || '')};`,
+    `#SUBTITLETRANSLIT:${escapeMSDParameter(simfile.subtitleTranslit || '')};`,
+    `#ARTISTTRANSLIT:${escapeMSDParameter(simfile.artistTranslit || '')};`,
+    `#GENRE:${escapeMSDParameter(simfile.genre || '')};`,
+    `#CREDIT:${escapeMSDParameter(simfile.credit || '')};`,
+    `#BANNER:${escapeMSDParameter(simfile.banner || '')};`,
+    `#BACKGROUND:${escapeMSDParameter(simfile.background || '')};`,
+    `#LYRICSPATH:${escapeMSDParameter(simfile.lyricsPath || '')};`,
+    `#CDTITLE:${escapeMSDParameter(simfile.cdTitle || '')};`,
+    `#MUSIC:${escapeMSDParameter(simfile.music || '')};`,
     `#OFFSET:${formatFloat(t.offset)};`,
     `#SAMPLESTART:${formatFloat(simfile.sampleStart || 0)};`,
     `#SAMPLELENGTH:${formatFloat(simfile.sampleLength || 12)};`,
-    `#SELECTABLE:${simfile.selectable || 'YES'};`,
+    `#SELECTABLE:${escapeMSDParameter(simfile.selectable || 'YES')};`,
   ];
 
   if (simfile.displayBpm) {
@@ -155,13 +191,10 @@ export function serializeSM(simfile: Simfile): string {
 
   headerLines.push(`#BPMS:${formatBpmList(t.bpms)};`);
   headerLines.push(`#STOPS:${formatStopList(t.stops)};`);
-  headerLines.push(`#BGCHANGES:;`);
-  headerLines.push(`#KEYSOUNDS:;`);
-
   if (simfile.extraTags) {
     for (const [key, val] of Object.entries(simfile.extraTags)) {
       if (!headerLines.some((l) => l.startsWith(`#${key}:`))) {
-        headerLines.push(`#${key}:${val};`);
+        headerLines.push(`#${key}:${escapeUnknownTagValue(val)};`);
       }
     }
   }
@@ -178,7 +211,7 @@ export function serializeSM(simfile: Simfile): string {
     const block = [
       '#NOTES:',
       `     ${chart.stepsType}:`,
-      `     ${chart.description || simfile.credit || ''}:`,
+      `     ${escapeMSDParameter(chart.description || simfile.credit || '')}:`,
       `     ${chart.difficulty}:`,
       `     ${chart.meter}:`,
       `     ${radar}:`,
@@ -208,50 +241,44 @@ export function formatSSCChartBlock(
 
   const lines = [
     '#NOTEDATA:;',
-    `#CHARTNAME:${chart.chartName || ''};`,
+    `#CHARTNAME:${escapeMSDParameter(chart.chartName || '')};`,
     `#STEPSTYPE:${chart.stepsType};`,
-    `#DESCRIPTION:${chart.description || ''};`,
-    `#CHARTSTYLE:${chart.chartStyle || ''};`,
+    `#DESCRIPTION:${escapeMSDParameter(chart.description || '')};`,
+    `#CHARTSTYLE:${escapeMSDParameter(chart.chartStyle || '')};`,
     `#DIFFICULTY:${chart.difficulty};`,
     `#METER:${chart.meter};`,
     `#RADARVALUES:${radar};`,
-    `#CREDIT:${chart.credit || ''};`,
+    `#CREDIT:${escapeMSDParameter(chart.credit || '')};`,
   ];
 
   if (chart.music) {
-    lines.push(`#MUSIC:${chart.music};`);
+    lines.push(`#MUSIC:${escapeMSDParameter(chart.music)};`);
   }
 
   // Split timing check
   const ct = chart.timing;
+  const comparedTags: TimingTagName[] = ['OFFSET', 'BPMS', 'STOPS', 'DELAYS', 'WARPS', 'TIMESIGNATURES', ...OPTIONAL_TIMING_TAGS];
   const hasSplit =
     forceSplitTiming ||
     (ct !== undefined &&
-      (Math.abs(ct.offset - songTiming.offset) > 1e-6 ||
-        (ct.bpms && ct.bpms.length > 0 && JSON.stringify(ct.bpms) !== JSON.stringify(songTiming.bpms)) ||
-        (ct.stops && ct.stops.length > 0) ||
-        (ct.delays && ct.delays.length > 0) ||
-        (ct.warps && ct.warps.length > 0)));
+      ((ct.presentTags?.length || 0) > 0 || comparedTags.some((tag) => formatTimingTag(tag, ct) !== formatTimingTag(tag, songTiming))));
 
   if (hasSplit && ct) {
-    lines.push(`#OFFSET:${formatFloat(ct.offset)};`);
-    if (ct.bpms && ct.bpms.length > 0) {
-      lines.push(`#BPMS:${formatBpmList(ct.bpms)};`);
-    }
-    if (ct.stops && ct.stops.length > 0) {
-      lines.push(`#STOPS:${formatStopList(ct.stops)};`);
-    }
-    if (ct.delays && ct.delays.length > 0) {
-      lines.push(`#DELAYS:${formatDelayList(ct.delays)};`);
-    }
-    if (ct.warps && ct.warps.length > 0) {
-      lines.push(`#WARPS:${formatWarpList(ct.warps)};`);
+    const comparisonBase = chart.inheritedTiming || songTiming;
+    const changedTags = comparedTags.filter((tag) =>
+      forceSplitTiming || formatTimingTag(tag, ct) !== formatTimingTag(tag, comparisonBase)
+    );
+    const tags = [...new Set([...(ct.presentTags || []), ...changedTags])];
+    for (const tag of tags) {
+      lines.push(`#${tag}:${formatTimingTag(tag, ct)};`);
     }
   }
 
   if (chart.extraTags) {
     for (const [key, val] of Object.entries(chart.extraTags)) {
-      lines.push(`#${key}:${val};`);
+      if (!lines.some((line) => line.startsWith(`#${key}:`))) {
+        lines.push(`#${key}:${escapeUnknownTagValue(val)};`);
+      }
     }
   }
 
@@ -268,57 +295,41 @@ export function serializeSSC(simfile: Simfile, forceSplitTiming = false): string
 
   const headerLines = [
     `#VERSION:${version.toFixed(2)};`,
-    `#TITLE:${simfile.title};`,
-    `#SUBTITLE:${simfile.subtitle};`,
-    `#ARTIST:${simfile.artist};`,
-    `#TITLETRANSLIT:${simfile.titleTranslit || ''};`,
-    `#SUBTITLETRANSLIT:${simfile.subtitleTranslit || ''};`,
-    `#ARTISTTRANSLIT:${simfile.artistTranslit || ''};`,
-    `#GENRE:${simfile.genre || ''};`,
-    `#ORIGIN:;`,
-    `#CREDIT:${simfile.credit || ''};`,
-    `#BANNER:${simfile.banner || ''};`,
-    `#BACKGROUND:${simfile.background || ''};`,
-    `#PREVIEWVID:;`,
-    `#JACKET:;`,
-    `#CDIMAGE:;`,
-    `#DISCIMAGE:;`,
-    `#LYRICSPATH:${simfile.lyricsPath || ''};`,
-    `#CDTITLE:${simfile.cdTitle || ''};`,
-    `#MUSIC:${simfile.music || ''};`,
+    `#TITLE:${escapeMSDParameter(simfile.title)};`,
+    `#SUBTITLE:${escapeMSDParameter(simfile.subtitle)};`,
+    `#ARTIST:${escapeMSDParameter(simfile.artist)};`,
+    `#TITLETRANSLIT:${escapeMSDParameter(simfile.titleTranslit || '')};`,
+    `#SUBTITLETRANSLIT:${escapeMSDParameter(simfile.subtitleTranslit || '')};`,
+    `#ARTISTTRANSLIT:${escapeMSDParameter(simfile.artistTranslit || '')};`,
+    `#GENRE:${escapeMSDParameter(simfile.genre || '')};`,
+    `#CREDIT:${escapeMSDParameter(simfile.credit || '')};`,
+    `#BANNER:${escapeMSDParameter(simfile.banner || '')};`,
+    `#BACKGROUND:${escapeMSDParameter(simfile.background || '')};`,
+    `#LYRICSPATH:${escapeMSDParameter(simfile.lyricsPath || '')};`,
+    `#CDTITLE:${escapeMSDParameter(simfile.cdTitle || '')};`,
+    `#MUSIC:${escapeMSDParameter(simfile.music || '')};`,
     `#OFFSET:${formatFloat(t.offset)};`,
     `#SAMPLESTART:${formatFloat(simfile.sampleStart || 0)};`,
     `#SAMPLELENGTH:${formatFloat(simfile.sampleLength || 12)};`,
-    `#SELECTABLE:${simfile.selectable || 'YES'};`,
+    `#SELECTABLE:${escapeMSDParameter(simfile.selectable || 'YES')};`,
   ];
 
   if (simfile.displayBpm) {
     headerLines.push(`#DISPLAYBPM:${simfile.displayBpm};`);
   }
 
-  headerLines.push(`#BPMS:${formatBpmList(t.bpms)};`);
-  headerLines.push(`#STOPS:${formatStopList(t.stops)};`);
-  headerLines.push(`#DELAYS:${formatDelayList(t.delays || [])};`);
-  headerLines.push(`#WARPS:${formatWarpList(t.warps || [])};`);
-
-  const tsList = t.timeSignatures && t.timeSignatures.length > 0
-    ? t.timeSignatures.map((ts) => `${formatFloat(ts.beat)}=${ts.numerator}=${ts.denominator}`).join(',')
-    : '0.000000=4=4';
-  headerLines.push(`#TIMESIGNATURES:${tsList};`);
-
-  headerLines.push(`#TICKCOUNTS:0.000000=4;`);
-  headerLines.push(`#COMBOS:0.000000=1=1;`);
-  headerLines.push(`#SPEEDS:0.000000=1.000000=0.000000=0;`);
-  headerLines.push(`#SCROLLS:0.000000=1.000000;`);
-  headerLines.push(`#FAKES:;`);
-  headerLines.push(`#LABELS:0.000000=Song Start;`);
-  headerLines.push(`#BGCHANGES:;`);
-  headerLines.push(`#KEYSOUNDS:;`);
-
+  for (const tag of ['BPMS', 'STOPS', 'DELAYS', 'WARPS', 'TIMESIGNATURES'] as TimingTagName[]) {
+    headerLines.push(`#${tag}:${formatTimingTag(tag, t)};`);
+  }
+  for (const tag of OPTIONAL_TIMING_TAGS) {
+    if (t.presentTags?.includes(tag) || formatTimingTag(tag, t)) {
+      headerLines.push(`#${tag}:${formatTimingTag(tag, t)};`);
+    }
+  }
   if (simfile.extraTags) {
     for (const [key, val] of Object.entries(simfile.extraTags)) {
       if (!headerLines.some((l) => l.startsWith(`#${key}:`))) {
-        headerLines.push(`#${key}:${val};`);
+        headerLines.push(`#${key}:${escapeUnknownTagValue(val)};`);
       }
     }
   }
