@@ -7,8 +7,14 @@
 - Timing edits target the active effective timing layer. They replace only beat-zero BPM/time-signature events, preserve later events and all other timing lists, and mark only changed fields in `presentTags` for split-timing export.
 - Every note-row transaction rebuilds measures and derived holds. Automatic hold tails advance to the next free snap rather than overwriting an event.
 - Range commits reject selections that split an existing hold at either boundary and reject generated orphan tails, overlapping heads, and unclosed heads. Hold derivation no longer invents a tail at the chart's final row.
+- Manual deletion or toggle-off of either hold endpoint removes its paired endpoint in the same transaction. Paste and other row edits with malformed hold topology are rejected before they reach chart state.
 - Generated proposals capture document, chart, revision, and an immutable half-open beat interval. Stale responses are discarded, stale commits are rejected, errors leave no actionable empty proposal, and rows exactly at the exclusive end boundary survive.
+- Song-level timing edits and timing undo/redo increment every chart revision, so a proposal launched on another inheriting chart cannot become current again after switching away and back. Split chart timing increments only its chart revision.
 - Full-song generation includes the duration of loaded audio using the effective timing engine.
+- Full-song UI displays the exact audio-derived beat interval and labels it “Full Song.” Inference feature coverage rounds the request horizon up, while proposal display and commit remain filtered to the exact half-open interval.
+- Loading audio increments an audio revision so the waveform view remounts with the decoded file's duration instead of retaining the startup track label.
+- The transport identifies the attached source as `Demo audio` or by filename. Generation checks the active chart's `MUSIC` override before the song-level `MUSIC`; switching SSC charts therefore revalidates the source. A deliberate attachment override is scoped to that document, chart, and expected basename. Basename comparison is case-insensitive. Imported charts without `MUSIC` still require real audio and never treat startup Demo audio as their source.
+- A before-unload guard is installed only after chart/timing changes or a new audio draft and is cleared after export or document import.
 - Generation sends the real waveform sample rate, slice origin, and half-open 48-tick timing timestamps so variable-tempo audio slices stay aligned across engines.
 
 ## Verification
@@ -18,6 +24,10 @@
 - `npm run build`: passed.
 - Latest full run: 197/199 passed. The remaining two failures are in the concurrently changing M6/M7 inference suite: one five-second timeout and one empty placement result for its 500k-sample adversarial waveform.
 - App workflow tests render the real `App` and exercise its file input, chart buttons, keyboard shortcuts, and timing modal. They mock only audio/browser rendering and inference services (`AudioEngine`, `WaveformRenderer`, `stepperApi`, and WASM initialization).
+- A real App regression deletes a hold at its head, verifies both endpoints disappear, then verifies undo restores both.
+- The audio-attach App regression verifies the waveform duration refresh and the Full Song selector's exact audio-derived range.
+- App regressions verify stale-audio generation rejection, source-label visibility, clean-versus-dirty unload behavior, and clearing the unload guard after export.
+- A delayed real App regression launches generation on chart B, edits global timing on chart A, switches back, resolves the response, and verifies no proposal can be accepted.
 
 ## Remaining limitations
 

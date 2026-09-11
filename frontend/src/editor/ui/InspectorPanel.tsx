@@ -124,7 +124,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                 : 'bg-[#FF336622] text-[#FF3366] border border-[#FF336644]'
             }`}
           >
-            {parityResult.is_playable ? 'PLAYABLE' : 'UNPLAYABLE'}
+            {parityResult.is_playable ? 'RULES PASSED' : 'REVIEW NEEDED'}
           </span>
         </div>
 

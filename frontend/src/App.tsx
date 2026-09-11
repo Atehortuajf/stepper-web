@@ -62,8 +62,10 @@ import {
   fullSongEndBeat,
   rebuildChartFromRows,
   replaceRowsInHalfOpenRange,
+  removeHoldEndpointPair,
   sameProposalTarget,
   updateInitialTiming,
+  validateHoldTopology,
 } from './editor/transactions/editorTransactions';
 import type { ProposalContext } from './editor/transactions/editorTransactions';
 
@@ -125,6 +127,12 @@ export function App() {
   const [currentPlaybackTime, setCurrentPlaybackTime] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [fileInputKey, setFileInputKey] = useState<number>(0);
+  const [audioRevision, setAudioRevision] = useState<number>(0);
+  const [attachedAudioName, setAttachedAudioName] = useState('Demo audio');
+  const [audioMismatch, setAudioMismatch] = useState(false);
+  const [hasAttachedRealAudio, setHasAttachedRealAudio] = useState(false);
+  const [audioOverrideKey, setAudioOverrideKey] = useState<string | null>(null);
+  const [isDocumentDirty, setIsDocumentDirty] = useState(false);
 
   // Editor Snap & Tool state
   const [subdivisionSnap, setSubdivisionSnap] = useState<SubdivisionTier>(16);
@@ -220,10 +228,34 @@ export function App() {
   }, [simfile.timing, activeChart]);
 
   const effectiveTiming = activeChart?.timing || simfile.timing;
+  const expectedAudioName = activeChart?.music || simfile.music || '';
+  const expectedAudioBasename = expectedAudioName.split(/[\\/]/).pop()?.toLowerCase() || '';
+  const attachedAudioBasename = attachedAudioName.split(/[\\/]/).pop()?.toLowerCase() || '';
+  const activeAudioTargetKey = `${documentIdRef.current}:${activeChartIndex}:${expectedAudioBasename}`;
 
   useEffect(() => {
     activeChartIndexRef.current = activeChartIndex;
   }, [activeChartIndex]);
+
+  useEffect(() => {
+    if (isPristineDemoRef.current) {
+      setAudioMismatch(false);
+      return;
+    }
+    const matchesReference = Boolean(expectedAudioBasename) && expectedAudioBasename === attachedAudioBasename;
+    const deliberatelyOverridden = audioOverrideKey === activeAudioTargetKey;
+    setAudioMismatch(!hasAttachedRealAudio || (!matchesReference && !deliberatelyOverridden));
+  }, [activeAudioTargetKey, attachedAudioBasename, audioOverrideKey, expectedAudioBasename, hasAttachedRealAudio]);
+
+  useEffect(() => {
+    if (!isDocumentDirty) return;
+    const warnUnsaved = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnUnsaved);
+    return () => window.removeEventListener('beforeunload', warnUnsaved);
+  }, [isDocumentDirty]);
 
   const currentBeat = timingEngine.secondsToBeat(currentPlaybackTime);
 
@@ -408,16 +440,21 @@ export function App() {
     return Math.max(1, activeChart.notes.length);
   }, [activeChart]);
 
+  const fullRangeEndBeat = fullSongEndBeat(effectiveTiming, audioEngine.duration, totalMeasures * 4.0);
   const rangeStartBeat = rangeMode === 'full' ? 0.0 : startMeasure * 4.0;
-  const rangeEndBeat = rangeMode === 'full'
-    ? fullSongEndBeat(effectiveTiming, audioEngine.duration, totalMeasures * 4.0)
-    : endMeasure * 4.0;
+  const rangeEndBeat = rangeMode === 'full' ? fullRangeEndBeat : endMeasure * 4.0;
 
   const historyScope = `${documentIdRef.current}:${activeChartIndex}`;
 
   const bumpChartRevision = useCallback((chartIndex: number) => {
     chartRevisionsRef.current[chartIndex] = (chartRevisionsRef.current[chartIndex] || 0) + 1;
   }, []);
+
+  const bumpAllChartRevisions = useCallback(() => {
+    chartRevisionsRef.current = simfile.charts.map(
+      (_, chartIndex) => (chartRevisionsRef.current[chartIndex] || 0) + 1
+    );
+  }, [simfile.charts]);
 
   const applyHistoryState = useCallback((state: EditorHistoryState) => {
     const charts = [...simfile.charts];
@@ -427,10 +464,11 @@ export function App() {
       charts,
       timing: state.songTiming || simfile.timing,
     });
-    bumpChartRevision(activeChartIndex);
+    if (state.songTiming) bumpAllChartRevisions();
+    else bumpChartRevision(activeChartIndex);
     setProposedPlacements(null);
     setProposalContext(null);
-  }, [simfile, activeChartIndex, bumpChartRevision]);
+  }, [simfile, activeChartIndex, bumpChartRevision, bumpAllChartRevisions]);
 
   // Toggle Play / Pause
   const handleTogglePlay = useCallback(() => {
@@ -448,6 +486,11 @@ export function App() {
   const applyUpdatedRows = useCallback(
     (newRows: NoteRow[]) => {
       if (!activeChart) return;
+      const holdErrors = validateHoldTopology(newRows, panelCount);
+      if (holdErrors.length > 0) {
+        setGenerationError(`Unsafe edit rejected: ${holdErrors[0]}.`);
+        return;
+      }
       undoHistory.push(historyScope, { chart: activeChart });
       const updatedChart = rebuildChartFromRows(activeChart, newRows, panelCount);
 
@@ -460,6 +503,7 @@ export function App() {
       });
       bumpChartRevision(activeChartIndex);
       isPristineDemoRef.current = false;
+      setIsDocumentDirty(true);
       setProposedPlacements(null);
       setProposalContext(null);
     },
@@ -494,8 +538,16 @@ export function App() {
         const curChar = chars[col];
 
         if (mobileTool === 'DEL' || charToPlace === '0') {
+          if (curChar === '2' || curChar === '4' || curChar === '3') {
+            applyUpdatedRows(removeHoldEndpointPair(existingRows, beat, col));
+            return;
+          }
           chars[col] = '0';
         } else if (curChar === charToPlace) {
+          if (curChar === '2' || curChar === '4') {
+            applyUpdatedRows(removeHoldEndpointPair(existingRows, beat, col));
+            return;
+          }
           chars[col] = '0'; // Toggle off
         } else {
           chars[col] = charToPlace || '1';
@@ -584,12 +636,22 @@ export function App() {
     (targetBeat: number) => {
       if (!activeChart) return;
       const beat = quantizeBeat(targetBeat, subdivisionSnap);
-      const updated = activeChart.noteRows.filter((r) => Math.abs(r.beat - beat) >= 0.001);
-      if (updated.length !== activeChart.noteRows.length) {
+      const target = activeChart.noteRows.find((row) => Math.abs(row.beat - beat) < 0.001);
+      let updated = [...activeChart.noteRows];
+      if (target) {
+        for (let track = 0; track < panelCount; track++) {
+          const char = target.arrows[track];
+          if (char === '2' || char === '4' || char === '3') {
+            updated = removeHoldEndpointPair(updated, beat, track);
+          }
+        }
+      }
+      updated = updated.filter((r) => Math.abs(r.beat - beat) >= 0.001);
+      if (target) {
         applyUpdatedRows(updated);
       }
     },
-    [activeChart, subdivisionSnap, applyUpdatedRows]
+    [activeChart, subdivisionSnap, panelCount, applyUpdatedRows]
   );
 
   // Undo / Redo
@@ -600,6 +662,7 @@ export function App() {
     const prev = undoHistory.undo(historyScope, current);
     if (prev) {
       applyHistoryState(prev);
+      setIsDocumentDirty(true);
     }
   }, [activeChart, undoHistory, historyScope, simfile.timing, applyHistoryState]);
 
@@ -610,6 +673,7 @@ export function App() {
     const next = undoHistory.redo(historyScope, current);
     if (next) {
       applyHistoryState(next);
+      setIsDocumentDirty(true);
     }
   }, [activeChart, undoHistory, historyScope, simfile.timing, applyHistoryState]);
 
@@ -666,6 +730,7 @@ export function App() {
     a.download = `${simfile.title || 'stepchart'}.ssc`;
     a.click();
     URL.revokeObjectURL(url);
+    setIsDocumentDirty(false);
   }, [simfile]);
 
   const handleExportSM = useCallback(() => {
@@ -677,6 +742,7 @@ export function App() {
     a.download = `${simfile.title || 'stepchart'}.sm`;
     a.click();
     URL.revokeObjectURL(url);
+    setIsDocumentDirty(false);
   }, [simfile]);
 
   // Global Keyboard Shortcuts Hook
@@ -790,6 +856,14 @@ export function App() {
   // Chart generation handler
   const handleGenerate = useCallback(async () => {
     if (!activeChart) return;
+    if (audioMismatch) {
+      setGenerationError(
+        expectedAudioName
+          ? `Attach the chart's audio (${expectedAudioName}) before generating steps.`
+          : 'Attach audio for this imported chart before generating steps.'
+      );
+      return;
+    }
     const requestId = ++generationRequestRef.current;
     const context: ProposalContext = {
       documentId: documentIdRef.current,
@@ -804,7 +878,7 @@ export function App() {
     setGenerationError(null);
 
     const startBeat = rangeStartBeat;
-    const numBeats = Math.max(4, Math.round(rangeEndBeat - rangeStartBeat));
+    const numBeats = Math.max(4, Math.ceil(rangeEndBeat - rangeStartBeat));
     const bpm = timingEngine.initialBpm || 140.0;
     const rawVector = techVectorToArray(techVector);
     const sliceStartSec = timingEngine.beatToSeconds(startBeat);
@@ -900,7 +974,7 @@ export function App() {
       if (requestId === generationRequestRef.current) setIsGenerating(false);
       setWasmStatus((prev) => (prev.startsWith('Generating') ? 'ready' : prev));
     }
-  }, [activeChart, activeChartIndex, rangeStartBeat, rangeEndBeat, timingEngine, techVector, difficultyMeter, audioEngine, engineMode, placementThreshold]);
+  }, [activeChart, activeChartIndex, audioMismatch, expectedAudioName, rangeStartBeat, rangeEndBeat, timingEngine, techVector, difficultyMeter, audioEngine, engineMode, placementThreshold]);
 
   // Accept & Commit proposed notes to active chart
   const handleAcceptProposed = useCallback(
@@ -948,6 +1022,7 @@ export function App() {
     const isSSC = filename?.toLowerCase().endsWith('.ssc');
     const parsed = parseSimfile(text, isSSC ? 'ssc' : 'sm');
     setSimfile(parsed);
+    setAudioOverrideKey(null);
     documentIdRef.current += 1;
     chartRevisionsRef.current = parsed.charts.map(() => 0);
     undoHistory.clearAll();
@@ -956,6 +1031,8 @@ export function App() {
     activeChartIndexRef.current = 0;
     setProposedPlacements(null);
     setProposalContext(null);
+    setIsDocumentDirty(false);
+    return parsed;
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -964,6 +1041,7 @@ export function App() {
 
     let loadedSimfile = false;
     let loadedAudio = false;
+    let loadedDocument: Simfile | null = null;
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -972,7 +1050,7 @@ export function App() {
       if (name.endsWith('.sm') || name.endsWith('.ssc')) {
         try {
           const text = await file.text();
-          handleLoadSimfileText(text, file.name);
+          loadedDocument = handleLoadSimfileText(text, file.name);
           loadedSimfile = true;
         } catch (err) {
           console.error('Failed to parse simfile:', err);
@@ -988,10 +1066,23 @@ export function App() {
           const arrayBuffer = await file.arrayBuffer();
           await audioEngine.loadAudioFromBuffer(arrayBuffer);
           loadedAudio = true;
+          setAttachedAudioName(file.name);
+          setHasAttachedRealAudio(true);
+          setAudioRevision((revision) => revision + 1);
         } catch (err) {
           console.error('Failed to decode audio file:', err);
         }
       }
+    }
+
+    // Selecting audio in this file-picker action is an explicit source override,
+    // regardless of whether the browser enumerated it before or after a simfile.
+    if (loadedAudio) {
+      const chartIndex = loadedDocument ? 0 : activeChartIndexRef.current;
+      const document = loadedDocument || simfile;
+      const expected = (document.charts[chartIndex]?.music || document.music || '')
+        .split(/[\\/]/).pop()?.toLowerCase() || '';
+      setAudioOverrideKey(`${documentIdRef.current}:${chartIndex}:${expected}`);
     }
 
     // The untouched startup demo doubles as the explicit blank/onboarding state.
@@ -1022,6 +1113,7 @@ export function App() {
         chartRevisionsRef.current = [0];
         undoHistory.clearAll();
         isPristineDemoRef.current = false;
+        setIsDocumentDirty(true);
       }
       setCurrentPlaybackTime(0);
       audioEngine.seek(0);
@@ -1056,8 +1148,10 @@ export function App() {
     } else {
       setSimfile({ ...simfile, timing: updatedTiming });
     }
-    bumpChartRevision(activeChartIndex);
+    if (activeChart.timing) bumpChartRevision(activeChartIndex);
+    else bumpAllChartRevisions();
     isPristineDemoRef.current = false;
+    setIsDocumentDirty(true);
     setProposedPlacements(null);
     setProposalContext(null);
   };
@@ -1104,6 +1198,7 @@ export function App() {
         playbackRate={audioEngine.playbackRate}
         zoomLevel={4}
         fileType={simfile.fileType}
+        audioSourceLabel={attachedAudioName}
         backendStatus={backendStatus}
         backendDevice={backendDevice}
         engineMode={engineMode}
@@ -1160,6 +1255,7 @@ export function App() {
           {/* Waveform Scrubber Strip */}
           <div className="waveform-strip shrink-0" data-testid="waveform-strip">
             <AudioWaveformViewer
+              key={`mobile-waveform-${audioRevision}`}
               audioEngine={audioEngine}
               timingEngine={timingEngine}
               onTimeChange={(t) => setCurrentPlaybackTime(t)}
@@ -1353,6 +1449,7 @@ export function App() {
             {/* Top Audio Waveform Strip */}
             <div className="p-3 bg-[#0D1017] border-b border-[#1E2333] shrink-0" data-testid="waveform-strip">
               <AudioWaveformViewer
+                key={`desktop-waveform-${audioRevision}`}
                 audioEngine={audioEngine}
                 timingEngine={timingEngine}
                 onTimeChange={(t) => setCurrentPlaybackTime(t)}
@@ -1385,6 +1482,7 @@ export function App() {
                       endMeasure={endMeasure}
                       onEndMeasureChange={setEndMeasure}
                       totalMeasures={totalMeasures}
+                      fullEndBeat={fullRangeEndBeat}
                     />
 
                     <HeatmapOverlay

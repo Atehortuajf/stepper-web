@@ -13,6 +13,7 @@ export interface MeasureRangeSelectorProps {
   endMeasure: number;
   onEndMeasureChange: (m: number) => void;
   totalMeasures: number;
+  fullEndBeat?: number;
   className?: string;
 }
 
@@ -24,12 +25,15 @@ export const MeasureRangeSelector: React.FC<MeasureRangeSelectorProps> = ({
   endMeasure,
   onEndMeasureChange,
   totalMeasures,
+  fullEndBeat,
   className = '',
 }) => {
   const safeTotal = Math.max(1, totalMeasures);
 
   const startBeat = mode === 'full' ? 0.0 : startMeasure * 4.0;
-  const numBeats = mode === 'full' ? safeTotal * 4.0 : Math.max(4.0, (endMeasure - startMeasure) * 4.0);
+  const numBeats = mode === 'full'
+    ? (fullEndBeat ?? safeTotal * 4.0)
+    : Math.max(4.0, (endMeasure - startMeasure) * 4.0);
 
   const handleSetQuickRange = (start: number, count: number) => {
     onModeChange('range');
@@ -47,8 +51,8 @@ export const MeasureRangeSelector: React.FC<MeasureRangeSelectorProps> = ({
           Generation Window
         </span>
         <div className="flex items-center gap-1 font-mono text-[10px] text-[#00e5ff]">
-          <span>Beats {startBeat.toFixed(0)}–{(startBeat + numBeats).toFixed(0)}</span>
-          <span className="text-[#586074]">({numBeats.toFixed(0)} beats)</span>
+          <span>Beats {startBeat.toFixed(2)}–{(startBeat + numBeats).toFixed(2)}</span>
+          <span className="text-[#586074]">({numBeats.toFixed(2)} beats)</span>
         </div>
       </div>
 
@@ -76,7 +80,7 @@ export const MeasureRangeSelector: React.FC<MeasureRangeSelectorProps> = ({
           }`}
           data-testid="mode-full-btn"
         >
-          Full Chart ({safeTotal} Meas)
+          {fullEndBeat !== undefined ? 'Full Song' : `Full Chart (${safeTotal} Meas)`}
         </button>
       </div>
 

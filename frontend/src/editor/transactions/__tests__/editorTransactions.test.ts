@@ -6,6 +6,7 @@ import {
   findAvailableHoldTailBeat,
   fullSongEndBeat,
   replaceRowsInHalfOpenRange,
+  removeHoldEndpointPair,
   sameProposalTarget,
   updateInitialTiming,
   validateHoldTopology,
@@ -112,6 +113,24 @@ describe('editor transactions', () => {
     ]);
     expect(() => replaceRowsInHalfOpenRange(withBoundaryHold, [], 0, 4, 4))
       .toThrow('Selection boundary crosses a hold');
+  });
+
+  it('removes both endpoints when either a hold head or tail is erased', () => {
+    const rows = [
+      { row: 0, beat: 0, arrows: '2100' },
+      { row: 48, beat: 1, arrows: '0010' },
+      { row: 96, beat: 2, arrows: '3001' },
+    ];
+    expect(removeHoldEndpointPair(rows, 0, 0)).toEqual([
+      { row: 0, beat: 0, arrows: '0100' },
+      { row: 48, beat: 1, arrows: '0010' },
+      { row: 96, beat: 2, arrows: '0001' },
+    ]);
+    expect(removeHoldEndpointPair(rows, 2, 0)).toEqual([
+      { row: 0, beat: 0, arrows: '0100' },
+      { row: 48, beat: 1, arrows: '0010' },
+      { row: 96, beat: 2, arrows: '0001' },
+    ]);
   });
 
   it('moves an automatic hold tail forward instead of overwriting a collision', () => {

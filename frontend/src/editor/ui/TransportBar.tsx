@@ -23,6 +23,7 @@ export interface TransportBarProps {
   playbackRate: number;
   zoomLevel: number;
   fileType?: string;
+  audioSourceLabel?: string;
   backendStatus: string;
   backendDevice: string;
   engineMode?: 'wasm' | 'backend' | 'auto';
@@ -62,6 +63,7 @@ export const TransportBar: React.FC<TransportBarProps> = ({
   playbackRate,
   zoomLevel,
   fileType,
+  audioSourceLabel,
   backendStatus,
   backendDevice,
   engineMode = 'wasm',
@@ -107,6 +109,16 @@ export const TransportBar: React.FC<TransportBarProps> = ({
         {fileType && (
           <span className="text-[10px] px-1 py-0.5 rounded bg-[#1F2434] text-[#79C0FF] border border-[#2E354B] uppercase font-mono shrink-0">
             .{fileType}
+          </span>
+        )}
+
+        {audioSourceLabel && (
+          <span
+            className="text-[10px] px-1 py-0.5 rounded bg-[#1F2434] text-[#C0C4D6] border border-[#2E354B] truncate max-w-[120px]"
+            data-testid="audio-source-label"
+            title={`Attached audio: ${audioSourceLabel}`}
+          >
+            Audio: {audioSourceLabel}
           </span>
         )}
       </div>

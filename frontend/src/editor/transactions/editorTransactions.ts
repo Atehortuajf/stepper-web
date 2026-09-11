@@ -67,6 +67,39 @@ export function validateHoldTopology(noteRows: NoteRow[], panelCount: number): s
   return errors;
 }
 
+export function removeHoldEndpointPair(noteRows: NoteRow[], targetBeat: number, track: number): NoteRow[] {
+  const rows = [...noteRows]
+    .sort((a, b) => a.row - b.row)
+    .map((row) => ({ ...row }));
+  const index = rows.findIndex((row) => Math.abs(row.beat - targetBeat) < 0.000001);
+  if (index < 0) return rows;
+  const char = rows[index].arrows[track] || '0';
+  if (char !== '2' && char !== '4' && char !== '3') return rows;
+
+  let counterpart = -1;
+  const direction = char === '3' ? -1 : 1;
+  for (let cursor = index + direction; cursor >= 0 && cursor < rows.length; cursor += direction) {
+    const candidate = rows[cursor].arrows[track] || '0';
+    if (char === '3' && (candidate === '2' || candidate === '4')) {
+      counterpart = cursor;
+      break;
+    }
+    if (char !== '3' && candidate === '3') {
+      counterpart = cursor;
+      break;
+    }
+    if (candidate === '2' || candidate === '4' || candidate === '3') break;
+  }
+
+  for (const rowIndex of [index, counterpart]) {
+    if (rowIndex < 0) continue;
+    const arrows = rows[rowIndex].arrows.split('');
+    arrows[track] = '0';
+    rows[rowIndex] = { ...rows[rowIndex], arrows: arrows.join('') };
+  }
+  return rows.filter((row) => !row.arrows.split('').every((value) => value === '0'));
+}
+
 export function rebuildChartFromRows(chart: Chart, noteRows: NoteRow[], panelCount: number): Chart {
   const rows = [...noteRows].sort((a, b) => a.row - b.row);
   const grids = notesToMeasureGrids(rows, { panelCount });

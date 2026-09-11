@@ -270,7 +270,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
         <div>
           <span className="text-[#8A92A6]">Parity Status: </span>
           <span className={parityResult.is_playable ? 'text-[#00E676] font-bold' : 'text-[#FF3366] font-bold'}>
-            {parityResult.is_playable ? 'PLAYABLE' : 'UNPLAYABLE'}
+            {parityResult.is_playable ? 'RULES PASSED' : 'REVIEW NEEDED'}
           </span>
         </div>
         <div>

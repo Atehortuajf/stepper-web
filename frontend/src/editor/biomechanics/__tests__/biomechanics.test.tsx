@@ -308,7 +308,7 @@ describe('HeatmapOverlay Component', () => {
 
     const statusBadge = container.querySelector('[data-testid="playability-status"]');
     expect(statusBadge).not.toBeNull();
-    expect(statusBadge?.textContent).toBe('Playable');
+    expect(statusBadge?.textContent).toBe('Rules passed');
 
     // Click heat bar
     const bar0 = container.querySelector<HTMLDivElement>('[data-testid="heat-bar-0"]')!;

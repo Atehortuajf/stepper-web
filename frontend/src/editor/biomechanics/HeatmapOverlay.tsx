@@ -102,7 +102,7 @@ export const HeatmapOverlay: React.FC<HeatmapOverlayProps> = ({
             }`}
             data-testid="playability-status"
           >
-            {isPlayable ? 'Playable' : 'Unplayable'}
+            {isPlayable ? 'Rules passed' : 'Review needed'}
           </span>
         </div>
 
