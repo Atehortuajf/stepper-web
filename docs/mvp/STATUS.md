@@ -1,6 +1,6 @@
 # MVP implementation status
 
-Checkpoint: 2026-09-11. Branch: `mvp/p0-stabilization-2026-09-11`. Pushing this branch does not deploy the public site.
+Checkpoint: 2026-09-11. Branch: `mvp/p0-stabilization-2026-09-11`. The editor was subsequently deployed and verified on GitHub Pages; see [deployment record](DEPLOYMENT.md). Future pushes to this source branch do not automatically deploy.
 
 ## Accepted checkpoints
 
