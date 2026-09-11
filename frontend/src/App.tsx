@@ -6,15 +6,15 @@
  * and Mobile Responsive Touch Editing Workflow.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AudioEngine } from './editor/audio/AudioEngine';
 import { AudioWaveformViewer } from './editor/audio/AudioWaveformViewer';
 import { encodeWAV } from './editor/audio/wavEncoder';
 import { parseSimfile } from './editor/engine/msdParser';
 import { serializeSM, serializeSSC } from './editor/engine/smSerializer';
 import { TimingEngine } from './editor/engine/timingEngine';
-import { beatToRow, getSmallestNoteTypeForMeasure, notesToMeasureGrids } from './editor/engine/measureUtil';
-import type { Chart, Measure, NoteRow, Simfile, SubdivisionTier } from './editor/engine/types';
+import { beatToRow } from './editor/engine/measureUtil';
+import type { Chart, NoteRow, Simfile, SubdivisionTier } from './editor/engine/types';
 
 import {
   DiffOverlay,
@@ -49,7 +49,6 @@ import {
 import type { NoteToolType } from './editor/ui';
 
 import {
-  UndoRedoStack,
   cycleSubdivision,
   getSnapIntervalBeats,
   isInputFocused,
@@ -57,6 +56,21 @@ import {
   quantizeBeat,
 } from './editor/shortcuts/keyboardShortcuts';
 import type { NoteTypeChar } from './editor/shortcuts/keyboardShortcuts';
+import {
+  ScopedUndoHistory,
+  findAvailableHoldTailBeat,
+  fullSongEndBeat,
+  rebuildChartFromRows,
+  replaceRowsInHalfOpenRange,
+  sameProposalTarget,
+  updateInitialTiming,
+} from './editor/transactions/editorTransactions';
+import type { ProposalContext } from './editor/transactions/editorTransactions';
+
+interface EditorHistoryState {
+  chart: Chart;
+  songTiming?: Simfile['timing'];
+}
 
 const DEFAULT_SM_CONTENT = `#TITLE:MAX 300;
 #SUBTITLE:;
@@ -104,6 +118,10 @@ export function App() {
   const audioEngine = useMemo(() => new AudioEngine(), []);
   const [simfile, setSimfile] = useState<Simfile>(() => parseSimfile(DEFAULT_SM_CONTENT));
   const [activeChartIndex, setActiveChartIndex] = useState<number>(0);
+  const activeChartIndexRef = useRef(0);
+  const documentIdRef = useRef(1);
+  const chartRevisionsRef = useRef<number[]>([]);
+  const isPristineDemoRef = useRef(true);
   const [currentPlaybackTime, setCurrentPlaybackTime] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [fileInputKey, setFileInputKey] = useState<number>(0);
@@ -143,8 +161,8 @@ export function App() {
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
   const [isTimingModalOpen, setIsTimingModalOpen] = useState<boolean>(false);
 
-  // 50-action Undo/Redo stack
-  const undoStack = useMemo(() => new UndoRedoStack<Chart>(50), []);
+  // Each chart in each loaded document has an isolated transaction history.
+  const undoHistory = useMemo(() => new ScopedUndoHistory<EditorHistoryState>(50), []);
   const [clipboardRow, setClipboardRow] = useState<string | null>(null);
 
   // Backend Health / Device state
@@ -164,6 +182,8 @@ export function App() {
   const [endMeasure, setEndMeasure] = useState<number>(4);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [proposedPlacements, setProposedPlacements] = useState<Placement[] | null>(null);
+  const [proposalContext, setProposalContext] = useState<ProposalContext | null>(null);
+  const generationRequestRef = useRef(0);
   const [generationLatency, setGenerationLatency] = useState<number | undefined>(undefined);
   const [modelUsed, setModelUsed] = useState<string | undefined>(undefined);
   const [placementThreshold, setPlacementThreshold] = useState<number>(0.50);
@@ -198,6 +218,12 @@ export function App() {
     const timing = activeChart && activeChart.timing ? activeChart.timing : simfile.timing;
     return new TimingEngine(timing);
   }, [simfile.timing, activeChart]);
+
+  const effectiveTiming = activeChart?.timing || simfile.timing;
+
+  useEffect(() => {
+    activeChartIndexRef.current = activeChartIndex;
+  }, [activeChartIndex]);
 
   const currentBeat = timingEngine.secondsToBeat(currentPlaybackTime);
 
@@ -292,7 +318,7 @@ export function App() {
     }
 
     let isCurrent = true;
-    const bpms = simfile.timing.bpms.map((b) => ({ beat: b.beat, bpm: b.bpm }));
+    const bpms = effectiveTiming.bpms.map((b) => ({ beat: b.beat, bpm: b.bpm }));
 
     stepperApi
       .solveParity({
@@ -374,7 +400,7 @@ export function App() {
     return () => {
       isCurrent = false;
     };
-  }, [activeChart, simfile.timing.bpms, difficultyMeter]);
+  }, [activeChart, effectiveTiming.bpms, difficultyMeter]);
 
   // Total measures computation
   const totalMeasures = useMemo(() => {
@@ -383,7 +409,28 @@ export function App() {
   }, [activeChart]);
 
   const rangeStartBeat = rangeMode === 'full' ? 0.0 : startMeasure * 4.0;
-  const rangeEndBeat = rangeMode === 'full' ? totalMeasures * 4.0 : endMeasure * 4.0;
+  const rangeEndBeat = rangeMode === 'full'
+    ? fullSongEndBeat(effectiveTiming, audioEngine.duration, totalMeasures * 4.0)
+    : endMeasure * 4.0;
+
+  const historyScope = `${documentIdRef.current}:${activeChartIndex}`;
+
+  const bumpChartRevision = useCallback((chartIndex: number) => {
+    chartRevisionsRef.current[chartIndex] = (chartRevisionsRef.current[chartIndex] || 0) + 1;
+  }, []);
+
+  const applyHistoryState = useCallback((state: EditorHistoryState) => {
+    const charts = [...simfile.charts];
+    charts[activeChartIndex] = state.chart;
+    setSimfile({
+      ...simfile,
+      charts,
+      timing: state.songTiming || simfile.timing,
+    });
+    bumpChartRevision(activeChartIndex);
+    setProposedPlacements(null);
+    setProposalContext(null);
+  }, [simfile, activeChartIndex, bumpChartRevision]);
 
   // Toggle Play / Pause
   const handleTogglePlay = useCallback(() => {
@@ -401,26 +448,8 @@ export function App() {
   const applyUpdatedRows = useCallback(
     (newRows: NoteRow[]) => {
       if (!activeChart) return;
-      undoStack.push(activeChart);
-
-      const grids = notesToMeasureGrids(newRows, { panelCount });
-      const updatedMeasures: Measure[] = grids.map((grid) => {
-        const opt = getSmallestNoteTypeForMeasure(grid);
-        const stride = opt.stride;
-        const numRows = opt.numRows;
-        const lines: string[] = [];
-        const emptyChord = '0'.repeat(panelCount);
-        for (let r = 0; r < numRows; r++) {
-          lines.push(grid.get(r * stride) || emptyChord);
-        }
-        return { lines };
-      });
-
-      const updatedChart: Chart = {
-        ...activeChart,
-        noteRows: newRows,
-        notes: updatedMeasures,
-      };
+      undoHistory.push(historyScope, { chart: activeChart });
+      const updatedChart = rebuildChartFromRows(activeChart, newRows, panelCount);
 
       const updatedCharts = [...simfile.charts];
       updatedCharts[activeChartIndex] = updatedChart;
@@ -429,8 +458,12 @@ export function App() {
         ...simfile,
         charts: updatedCharts,
       });
+      bumpChartRevision(activeChartIndex);
+      isPristineDemoRef.current = false;
+      setProposedPlacements(null);
+      setProposalContext(null);
     },
-    [activeChart, panelCount, simfile, activeChartIndex, undoStack]
+    [activeChart, panelCount, simfile, activeChartIndex, undoHistory, historyScope, bumpChartRevision]
   );
 
   // Note Placement / Toggling
@@ -488,7 +521,8 @@ export function App() {
 
       // If placing Hold ('2') or Roll ('4'), ensure a tail ('3') exists
       if (charToPlace === '2' || charToPlace === '4') {
-        const tailBeat = beat + getSnapIntervalBeats(subdivisionSnap);
+        const snapBeats = getSnapIntervalBeats(subdivisionSnap);
+        const tailBeat = findAvailableHoldTailBeat(existingRows, col, beat + snapBeats, snapBeats);
         const tailRowIndex = existingRows.findIndex((r) => Math.abs(r.beat - tailBeat) < 0.001);
         if (tailRowIndex >= 0) {
           const tChars = existingRows[tailRowIndex].arrows.split('');
@@ -560,24 +594,24 @@ export function App() {
 
   // Undo / Redo
   const handleUndo = useCallback(() => {
-    if (!activeChart || !undoStack.canUndo()) return;
-    const prev = undoStack.undo(activeChart);
+    if (!activeChart) return;
+    const entry = undoHistory.peekUndo(historyScope);
+    const current = { chart: activeChart, ...(entry?.songTiming ? { songTiming: simfile.timing } : {}) };
+    const prev = undoHistory.undo(historyScope, current);
     if (prev) {
-      const updatedCharts = [...simfile.charts];
-      updatedCharts[activeChartIndex] = prev;
-      setSimfile({ ...simfile, charts: updatedCharts });
+      applyHistoryState(prev);
     }
-  }, [activeChart, undoStack, simfile, activeChartIndex]);
+  }, [activeChart, undoHistory, historyScope, simfile.timing, applyHistoryState]);
 
   const handleRedo = useCallback(() => {
-    if (!activeChart || !undoStack.canRedo()) return;
-    const next = undoStack.redo(activeChart);
+    if (!activeChart) return;
+    const entry = undoHistory.peekRedo(historyScope);
+    const current = { chart: activeChart, ...(entry?.songTiming ? { songTiming: simfile.timing } : {}) };
+    const next = undoHistory.redo(historyScope, current);
     if (next) {
-      const updatedCharts = [...simfile.charts];
-      updatedCharts[activeChartIndex] = next;
-      setSimfile({ ...simfile, charts: updatedCharts });
+      applyHistoryState(next);
     }
-  }, [activeChart, undoStack, simfile, activeChartIndex]);
+  }, [activeChart, undoHistory, historyScope, simfile.timing, applyHistoryState]);
 
   // Clipboard Copy / Paste
   const handleCopy = useCallback(() => {
@@ -755,22 +789,39 @@ export function App() {
 
   // Chart generation handler
   const handleGenerate = useCallback(async () => {
+    if (!activeChart) return;
+    const requestId = ++generationRequestRef.current;
+    const context: ProposalContext = {
+      documentId: documentIdRef.current,
+      chartIndex: activeChartIndex,
+      revision: chartRevisionsRef.current[activeChartIndex] || 0,
+      startBeat: rangeStartBeat,
+      endBeat: rangeEndBeat,
+    };
     setIsGenerating(true);
     setProposedPlacements(null);
+    setProposalContext(null);
     setGenerationError(null);
 
     const startBeat = rangeStartBeat;
-    const numBeats = Math.max(4.0, rangeEndBeat - rangeStartBeat);
+    const numBeats = Math.max(4, Math.round(rangeEndBeat - rangeStartBeat));
     const bpm = timingEngine.initialBpm || 140.0;
     const rawVector = techVectorToArray(techVector);
+    const sliceStartSec = timingEngine.beatToSeconds(startBeat);
+    let actualSliceStartSec = sliceStartSec;
+    const tickTimesSec = Array.from(
+      { length: Math.round(numBeats * 48) },
+      (_, index) => timingEngine.beatToSeconds(startBeat + index / 48)
+    );
 
     let audioSliceBase64: string | null = null;
     let waveformSlice: Float32Array | undefined = undefined;
     if (audioEngine.channelData && audioEngine.channelData.length > 0) {
       try {
-        const startSec = Math.max(0, timingEngine.beatToSeconds(startBeat));
+        const startSec = Math.max(0, sliceStartSec);
         const endSec = Math.min(audioEngine.duration, timingEngine.beatToSeconds(startBeat + numBeats));
         const startSample = Math.floor(startSec * audioEngine.sampleRate);
+        actualSliceStartSec = startSample / audioEngine.sampleRate;
         const endSample = Math.min(audioEngine.channelData[0].length, Math.floor(endSec * audioEngine.sampleRate));
 
         if (endSample > startSample) {
@@ -809,7 +860,10 @@ export function App() {
           num_beats: numBeats,
           bpm,
           offset: timingEngine.offset,
-          start_sec: timingEngine.beatToSeconds(startBeat),
+          start_sec: actualSliceStartSec,
+          slice_start_sec: actualSliceStartSec,
+          waveform_sample_rate: audioEngine.sampleRate,
+          tick_times_sec: tickTimesSec,
           threshold: placementThreshold,
         },
         waveformSlice,
@@ -818,46 +872,75 @@ export function App() {
         }
       );
 
+      const currentTarget: ProposalContext = {
+        ...context,
+        documentId: documentIdRef.current,
+        chartIndex: activeChartIndexRef.current,
+        revision: chartRevisionsRef.current[activeChartIndexRef.current] || 0,
+      };
+      if (requestId !== generationRequestRef.current || !sameProposalTarget(context, currentTarget)) {
+        return;
+      }
       setProposedPlacements(resp.placements);
+      setProposalContext(context);
       setGenerationLatency(resp.latency_ms);
       setModelUsed(resp.model_used);
     } catch (err) {
       console.error('Inference generation failed:', err);
+      if (requestId !== generationRequestRef.current) return;
       const errMsg = err instanceof Error ? err.message : String(err);
       setGenerationError(`Inference failed: ${errMsg}`);
-      setProposedPlacements([]);
+      if (requestId === generationRequestRef.current) {
+        setProposedPlacements(null);
+        setProposalContext(null);
+      }
       setGenerationLatency(0);
       setModelUsed('none');
     } finally {
-      setIsGenerating(false);
+      if (requestId === generationRequestRef.current) setIsGenerating(false);
       setWasmStatus((prev) => (prev.startsWith('Generating') ? 'ready' : prev));
     }
-  }, [rangeStartBeat, rangeEndBeat, timingEngine, techVector, difficultyMeter, audioEngine, engineMode, placementThreshold]);
+  }, [activeChart, activeChartIndex, rangeStartBeat, rangeEndBeat, timingEngine, techVector, difficultyMeter, audioEngine, engineMode, placementThreshold]);
 
   // Accept & Commit proposed notes to active chart
   const handleAcceptProposed = useCallback(
     (placements: Placement[]) => {
-      if (!activeChart) return;
-
-      const remainingNotes = activeChart.noteRows.filter(
-        (n) => n.beat < rangeStartBeat - 0.001 || n.beat >= rangeEndBeat + 0.001
-      );
-
-      const newRows: NoteRow[] = placements.map((p) => ({
-        row: beatToRow(p.beat),
-        beat: p.beat,
-        arrows: p.arrows,
-      }));
-
-      const mergedRows = [...remainingNotes, ...newRows].sort((a, b) => a.row - b.row);
-      applyUpdatedRows(mergedRows);
+      if (!activeChart || !proposalContext) return;
+      const currentTarget: ProposalContext = {
+        ...proposalContext,
+        documentId: documentIdRef.current,
+        chartIndex: activeChartIndex,
+        revision: chartRevisionsRef.current[activeChartIndex] || 0,
+      };
+      if (!sameProposalTarget(proposalContext, currentTarget)) {
+        setGenerationError('This proposal is stale because the chart changed. Generate it again.');
+        setProposedPlacements(null);
+        setProposalContext(null);
+        return;
+      }
+      let updated: Chart;
+      try {
+        updated = replaceRowsInHalfOpenRange(
+          activeChart,
+          placements,
+          proposalContext.startBeat,
+          proposalContext.endBeat,
+          panelCount
+        );
+      } catch (error) {
+        setGenerationError(error instanceof Error ? error.message : 'The generated range is not safe to apply.');
+        return;
+      }
+      applyUpdatedRows(updated.noteRows);
       setProposedPlacements(null);
+      setProposalContext(null);
     },
-    [activeChart, rangeStartBeat, rangeEndBeat, applyUpdatedRows]
+    [activeChart, activeChartIndex, panelCount, proposalContext, applyUpdatedRows]
   );
 
   const handleDiscardProposed = useCallback(() => {
     setProposedPlacements(null);
+    setProposalContext(null);
   }, []);
 
   // Simfile file loaders & exporters
@@ -865,8 +948,14 @@ export function App() {
     const isSSC = filename?.toLowerCase().endsWith('.ssc');
     const parsed = parseSimfile(text, isSSC ? 'ssc' : 'sm');
     setSimfile(parsed);
+    documentIdRef.current += 1;
+    chartRevisionsRef.current = parsed.charts.map(() => 0);
+    undoHistory.clearAll();
+    isPristineDemoRef.current = false;
     setActiveChartIndex(0);
+    activeChartIndexRef.current = 0;
     setProposedPlacements(null);
+    setProposalContext(null);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -875,7 +964,6 @@ export function App() {
 
     let loadedSimfile = false;
     let loadedAudio = false;
-    let audioFileName = '';
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -900,69 +988,41 @@ export function App() {
           const arrayBuffer = await file.arrayBuffer();
           await audioEngine.loadAudioFromBuffer(arrayBuffer);
           loadedAudio = true;
-          audioFileName = file.name;
         } catch (err) {
           console.error('Failed to decode audio file:', err);
         }
       }
     }
 
-    // Audio-only onboarding: when an audio file is uploaded without an accompanying .sm/.ssc
+    // The untouched startup demo doubles as the explicit blank/onboarding state.
+    // Once a document is loaded or edited, audio only attaches to the session.
     if (loadedAudio && !loadedSimfile) {
-      const cleanTitle = audioFileName.replace(/\.[^/.]+$/, '');
-      const isDefaultSample = simfile.title === 'MAX 300' && simfile.artist === 'Omega';
-
-      const baseChart: Chart = {
-        stepsType: 'dance-single',
-        description: 'AI Draft',
-        difficulty: 'Challenge',
-        meter: 12,
-        notes: [],
-        noteRows: [],
-        holds: [],
-      };
-
-      // Run client-side tempo and phase offset estimation on audio-only upload
-      const tempoResult = audioEngine.estimateTempo();
-      const detectedBpm = tempoResult && tempoResult.bpm > 0
-        ? tempoResult.bpm
-        : (isDefaultSample ? 140.0 : timingEngine.initialBpm);
-      const detectedOffset = tempoResult ? tempoResult.offset : 0.0;
-
-      setSimfile({
-        version: 0.83,
-        fileType: 'ssc',
-        title: cleanTitle,
-        subtitle: '',
-        artist: 'Unknown Artist',
-        titleTranslit: '',
-        subtitleTranslit: '',
-        artistTranslit: '',
-        genre: '',
-        credit: 'Stepper AI',
-        banner: '',
-        background: '',
-        lyricsPath: '',
-        cdTitle: '',
-        music: audioFileName,
-        sampleStart: 0,
-        sampleLength: 12,
-        selectable: 'YES',
-        displayBpm: '',
-        timing: {
-          offset: detectedOffset,
-          bpms: [{ beat: 0, bpm: detectedBpm }],
-          stops: [],
-          delays: [],
-          warps: [],
-          timeSignatures: [{ beat: 0, numerator: 4, denominator: 4 }],
-        },
-        charts: [baseChart],
-        metadata: {},
-      });
-
-      setActiveChartIndex(0);
+      generationRequestRef.current += 1;
       setProposedPlacements(null);
+      setProposalContext(null);
+      if (isPristineDemoRef.current) {
+        const tempo = audioEngine.estimateTempo();
+        const detectedBpm = tempo?.bpm && tempo.bpm > 0 ? tempo.bpm : 140;
+        const timing = {
+          offset: tempo?.offset || 0,
+          bpms: [{ beat: 0, bpm: detectedBpm }],
+          stops: [], delays: [], warps: [],
+          timeSignatures: [{ beat: 0, numerator: 4, denominator: 4 }],
+        };
+        const draft: Simfile = {
+          version: 0.83, fileType: 'ssc', title: files[0].name.replace(/\.[^/.]+$/, ''),
+          subtitle: '', artist: 'Unknown Artist', titleTranslit: '', subtitleTranslit: '',
+          artistTranslit: '', genre: '', credit: 'Stepper AI', banner: '', background: '',
+          lyricsPath: '', cdTitle: '', music: files[0].name, sampleStart: 0, sampleLength: 12,
+          selectable: 'YES', displayBpm: '', timing, metadata: {},
+          charts: [{ stepsType: 'dance-single', description: 'AI Draft', difficulty: 'Challenge', meter: 12, notes: [], noteRows: [], holds: [] }],
+        };
+        setSimfile(draft);
+        documentIdRef.current += 1;
+        chartRevisionsRef.current = [0];
+        undoHistory.clearAll();
+        isPristineDemoRef.current = false;
+      }
       setCurrentPlaybackTime(0);
       audioEngine.seek(0);
     } else if (loadedSimfile || loadedAudio) {
@@ -979,17 +1039,27 @@ export function App() {
     offset: number,
     timeSig: { numerator: number; denominator: number }
   ) => {
-    const updatedBpms = [{ beat: 0, bpm }];
-    const updatedTiming = {
-      ...simfile.timing,
-      offset,
-      bpms: updatedBpms,
-      timeSignatures: [{ beat: 0, numerator: timeSig.numerator, denominator: timeSig.denominator }],
-    };
-    setSimfile({
-      ...simfile,
-      timing: updatedTiming,
-    });
+    if (!activeChart) return;
+    if (activeChart.timing) {
+      undoHistory.push(historyScope, { chart: activeChart });
+    } else {
+      // Global timing affects every inheriting chart. Invalidate older chart-scoped
+      // histories so a later undo cannot restore a stale document-wide timing map.
+      undoHistory.clearAll();
+      undoHistory.push(historyScope, { chart: activeChart, songTiming: simfile.timing });
+    }
+    const updatedTiming = updateInitialTiming(effectiveTiming, { bpm, offset, timeSignature: timeSig });
+    if (activeChart?.timing) {
+      const charts = [...simfile.charts];
+      charts[activeChartIndex] = { ...activeChart, timing: updatedTiming };
+      setSimfile({ ...simfile, charts });
+    } else {
+      setSimfile({ ...simfile, timing: updatedTiming });
+    }
+    bumpChartRevision(activeChartIndex);
+    isPristineDemoRef.current = false;
+    setProposedPlacements(null);
+    setProposalContext(null);
   };
 
   // Mobile Touch Pad Arrow Press
@@ -1025,7 +1095,7 @@ export function App() {
         title={simfile.title}
         artist={simfile.artist}
         bpm={timingEngine.initialBpm}
-        offset={simfile.timing.offset}
+        offset={effectiveTiming.offset}
         currentBeat={currentBeat}
         currentTimeSeconds={currentPlaybackTime}
         totalDurationSeconds={audioEngine.duration || 60}
@@ -1077,7 +1147,8 @@ export function App() {
       <TimingModal
         isOpen={isTimingModalOpen}
         initialBpm={timingEngine.initialBpm}
-        initialOffset={simfile.timing.offset}
+        initialOffset={effectiveTiming.offset}
+        initialTimeSignature={effectiveTiming.timeSignatures.find((event) => event.beat === 0) || effectiveTiming.timeSignatures[0]}
         onSave={handleSaveTiming}
         onClose={() => setIsTimingModalOpen(false)}
       />
@@ -1240,8 +1311,10 @@ export function App() {
                     key={idx}
                     type="button"
                     onClick={() => {
+                      activeChartIndexRef.current = idx;
                       setActiveChartIndex(idx);
                       setProposedPlacements(null);
+                      setProposalContext(null);
                     }}
                     className={`w-full text-left px-2.5 py-1.5 rounded border transition-colors flex items-center justify-between ${
                       idx === activeChartIndex
@@ -1331,8 +1404,8 @@ export function App() {
                   <DiffOverlay
                     currentNotes={activeChart.noteRows}
                     proposedPlacements={proposedPlacements}
-                    rangeStartBeat={rangeStartBeat}
-                    rangeEndBeat={rangeEndBeat}
+                    rangeStartBeat={proposalContext?.startBeat ?? rangeStartBeat}
+                    rangeEndBeat={proposalContext?.endBeat ?? rangeEndBeat}
                     isGenerating={isGenerating}
                     latencyMs={generationLatency}
                     modelUsed={modelUsed}

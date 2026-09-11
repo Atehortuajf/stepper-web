@@ -255,7 +255,9 @@ export const TransportBar: React.FC<TransportBarProps> = ({
         <button
           type="button"
           onClick={onOpenFileUpload}
-          className="hidden md:inline px-2 py-1 bg-[#1F2434] hover:bg-[#283048] border border-[#363C52] text-[#E0E2EC] rounded text-[11px] transition-colors"
+          className="inline-flex px-2 py-1 bg-[#1F2434] hover:bg-[#283048] border border-[#363C52] text-[#E0E2EC] rounded text-[11px] transition-colors"
+          data-testid="btn-open-file"
+          title="Open audio or simfile"
         >
           Open
         </button>

@@ -49,20 +49,20 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
 }) => {
   const [filterType, setFilterType] = useState<string>('all');
 
-  // Compute diff rows within [rangeStartBeat, rangeEndBeat]
+  // Compute diff rows within the half-open interval [rangeStartBeat, rangeEndBeat).
   const diffRows = useMemo<DiffRow[]>(() => {
     if (!proposedPlacements) return [];
 
     const currentMap = new Map<string, string>();
     for (const n of currentNotes) {
-      if (n.beat >= rangeStartBeat - 0.001 && n.beat < rangeEndBeat + 0.001) {
+      if (n.beat >= rangeStartBeat && n.beat < rangeEndBeat) {
         currentMap.set(n.beat.toFixed(3), n.arrows);
       }
     }
 
     const proposedMap = new Map<string, { arrows: string; confidence: number }>();
     for (const p of proposedPlacements) {
-      if (p.beat >= rangeStartBeat - 0.001 && p.beat < rangeEndBeat + 0.001) {
+      if (p.beat >= rangeStartBeat && p.beat < rangeEndBeat) {
         proposedMap.set(p.beat.toFixed(3), { arrows: p.arrows, confidence: p.confidence });
       }
     }
@@ -126,7 +126,7 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
     return diffRows;
   }, [diffRows, filterType]);
 
-  const hasProposed = proposedPlacements !== null && proposedPlacements.length >= 0;
+  const hasProposed = proposedPlacements !== null;
 
   const renderArrowMiniatures = (chordStr: string, tier: SubdivisionTier) => {
     if (!chordStr || chordStr === '0000') {

@@ -454,4 +454,27 @@ describe('DiffOverlay Component', () => {
     });
     expect(handleDiscard).toHaveBeenCalled();
   });
+
+  it('does not include a chart row at the exclusive end boundary in the diff', async () => {
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <DiffOverlay
+          currentNotes={[
+            { row: 144, beat: 3, arrows: '1000' },
+            { row: 192, beat: 4, arrows: '0100' },
+          ]}
+          proposedPlacements={[]}
+          rangeStartBeat={0}
+          rangeEndBeat={4}
+          isGenerating={false}
+          onGenerate={vi.fn()}
+          onAccept={vi.fn()}
+          onDiscard={vi.fn()}
+        />
+      );
+    });
+    expect(container.querySelector('[data-testid="diff-row-3.00"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="diff-row-4.00"]')).toBeNull();
+  });
 });

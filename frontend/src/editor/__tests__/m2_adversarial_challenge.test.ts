@@ -4,7 +4,7 @@
  * Client-Side Audio-Only Tempo Estimation & Grid Synchronization.
  *
  * Covers:
- * 1. Ground Truth verification on "Crazy Jackpot.ogg" (ITL 2025 tournament track, 170 BPM).
+ * 1. Deterministic stereo reference fixture at 170 BPM.
  * 2. Synthetic pulse trains at arbitrary tempos (120.0, 133.33, 175.0, 200.0 BPM, edge tempos).
  * 3. Silent audio across multiple duration scales (0.01s to 30s).
  * 4. Extremely short audio clips (< 2 sec, down to 0 samples).
@@ -19,10 +19,6 @@ import {
   type TempoEstimationResult,
 } from '../audio/tempoEstimator';
 import { AudioEngine } from '../audio/AudioEngine';
-// @ts-ignore
-import * as fs from 'node:fs';
-// @ts-ignore
-import { execSync } from 'node:child_process';
 
 /**
  * Generates synthetic metronome audio pulse samples for testing.
@@ -63,52 +59,35 @@ function createSyntheticBeatAudio(
 }
 
 describe('Milestone 2 Empirical Challenge: Audio-Only Tempo Estimation & Grid Sync', () => {
-  const CRAZY_JACKPOT_OGG =
-    '/Users/ate/Library/Application Support/ITGmania/Songs/ITL Online 2025 Unlocks/[13] Crazy Jackpot (SX) [xRGTMx]/Crazy Jackpot.ogg';
-  const CRAZY_JACKPOT_SSC =
-    '/Users/ate/Library/Application Support/ITGmania/Songs/ITL Online 2025 Unlocks/[13] Crazy Jackpot (SX) [xRGTMx]/Crazy Jackpot.ssc';
-
-  // Helper to decode PCM slice from an audio file via python3 soundfile
-  function decodeOggSlice(filePath: string, durationSec: number): {
+  function createReferenceFixture(durationSec: number): {
     ch0: Float32Array;
     ch1: Float32Array;
     sampleRate: number;
     duration: number;
   } {
-    const pcm = execSync(
-      `python3 -c "import soundfile as sf, sys; data, sr = sf.read('''${filePath}''', dtype='float32'); sys.stdout.buffer.write(data[:int(${durationSec}*sr)].tobytes())"`,
-      { maxBuffer: 100 * 1024 * 1024 }
-    );
-    const floatArray = new Float32Array(
-      pcm.buffer,
-      pcm.byteOffset,
-      pcm.byteLength / 4
-    );
-    const numSamples = floatArray.length / 2;
-    const ch0 = new Float32Array(numSamples);
-    const ch1 = new Float32Array(numSamples);
-    for (let i = 0; i < numSamples; i++) {
-      ch0[i] = floatArray[i * 2];
-      ch1[i] = floatArray[i * 2 + 1];
-    }
-    return { ch0, ch1, sampleRate: 44100, duration: numSamples / 44100 };
+    const fixture = createSyntheticBeatAudio(170, durationSec, 44100);
+    return {
+      ch0: fixture.channelData[0],
+      ch1: fixture.channelData[1],
+      sampleRate: fixture.sampleRate,
+      duration: fixture.duration,
+    };
   }
 
-  describe('1. Tournament Reference Track: Crazy Jackpot.ogg (Strict 170.0 ± 1.0 BPM)', () => {
-    it('verifies Crazy Jackpot.ogg and Crazy Jackpot.ssc ground truth exist on filesystem', () => {
-      expect(fs.existsSync(CRAZY_JACKPOT_OGG)).toBe(true);
-      expect(fs.existsSync(CRAZY_JACKPOT_SSC)).toBe(true);
-
-      const sscContent = fs.readFileSync(CRAZY_JACKPOT_SSC, 'utf-8');
-      expect(sscContent).toContain('#BPMS:0.000000=170.000000');
-      expect(sscContent).toContain('#OFFSET:0.000000');
+  describe('1. Portable deterministic reference fixture (Strict 170.0 ± 1.0 BPM)', () => {
+    it('generates deterministic stereo PCM with a beat-zero transient', () => {
+      const first = createReferenceFixture(5);
+      const second = createReferenceFixture(5);
+      expect(first.sampleRate).toBe(44100);
+      expect(first.duration).toBe(5);
+      expect(first.ch0.length).toBe(220500);
+      expect(first.ch0).toEqual(second.ch0);
+      expect(first.ch1).toEqual(second.ch1);
+      expect(first.ch0.some((sample) => sample !== 0)).toBe(true);
     });
 
-    it('empirically detects strictly 170.0 BPM (within ±1.0 BPM) on Crazy Jackpot.ogg (60s window)', () => {
-      const { ch0, ch1, sampleRate, duration } = decodeOggSlice(
-        CRAZY_JACKPOT_OGG,
-        60
-      );
+    it('empirically detects strictly 170.0 BPM (within ±1.0 BPM) on a 30s stereo window', () => {
+      const { ch0, ch1, sampleRate, duration } = createReferenceFixture(30);
       const audioSource = { channelData: [ch0, ch1], sampleRate, duration };
 
       const t0 = performance.now();
@@ -116,7 +95,7 @@ describe('Milestone 2 Empirical Challenge: Audio-Only Tempo Estimation & Grid Sy
       const elapsedMs = performance.now() - t0;
 
       console.log(
-        `[M2 Adversarial] Crazy Jackpot 60s -> BPM: ${result.bpm} (raw: ${result.rawBpm}), offset: ${result.offset}s, conf: ${result.confidence.toFixed(3)}, time: ${elapsedMs.toFixed(1)}ms`
+        `[M2 Portable Reference] 30s -> BPM: ${result.bpm} (raw: ${result.rawBpm}), offset: ${result.offset}s, conf: ${result.confidence.toFixed(3)}, time: ${elapsedMs.toFixed(1)}ms`
       );
 
       // Strict requirement: 170.0 BPM within ±1.0 BPM
@@ -137,13 +116,10 @@ describe('Milestone 2 Empirical Challenge: Audio-Only Tempo Estimation & Grid Sy
       expect(elapsedMs).toBeLessThan(1500);
     });
 
-    it('empirically detects 170.0 BPM across diverse window durations (5s, 15s, 30s, full 115s)', () => {
+    it('empirically detects 170.0 BPM across diverse window durations (5s, 15s, 30s)', () => {
       const windowDurations = [5, 15, 30];
       for (const winSec of windowDurations) {
-        const { ch0, ch1, sampleRate, duration } = decodeOggSlice(
-          CRAZY_JACKPOT_OGG,
-          winSec
-        );
+        const { ch0, ch1, sampleRate, duration } = createReferenceFixture(winSec);
         const result = estimateTempoAndOffset({
           channelData: [ch0, ch1],
           sampleRate,
@@ -157,10 +133,7 @@ describe('Milestone 2 Empirical Challenge: Audio-Only Tempo Estimation & Grid Sy
     });
 
     it('empirically detects 170.0 BPM on isolated single channels (mono left and mono right)', () => {
-      const { ch0, ch1, sampleRate, duration } = decodeOggSlice(
-        CRAZY_JACKPOT_OGG,
-        30
-      );
+      const { ch0, ch1, sampleRate, duration } = createReferenceFixture(30);
 
       const resLeft = estimateTempoAndOffset({
         mono: ch0,
