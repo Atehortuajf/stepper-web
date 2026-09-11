@@ -1,0 +1,94 @@
+{
+  "convergence": [
+    {
+      "name": "Production (Full)",
+      "total_epochs": 51,
+      "best_val_loss": 1.55,
+      "best_val_epoch": 12,
+      "best_val_f1": 0.8156,
+      "best_val_acc": 0.5709,
+      "final_train_loss": 0.8401,
+      "final_val_loss": 1.9848
+    },
+    {
+      "name": "Ablation 1 (No Tech)",
+      "total_epochs": 31,
+      "best_val_loss": 1.5541,
+      "best_val_epoch": 13,
+      "best_val_f1": 0.8143,
+      "best_val_acc": 0.5702,
+      "final_train_loss": 1.1569,
+      "final_val_loss": 1.6574
+    },
+    {
+      "name": "Ablation 2 (No FSM)",
+      "total_epochs": 31,
+      "best_val_loss": 1.5456,
+      "best_val_epoch": 12,
+      "best_val_f1": 0.812,
+      "best_val_acc": 0.5706,
+      "final_train_loss": 1.1061,
+      "final_val_loss": 1.6698
+    },
+    {
+      "name": "Ablation 3 (Unconditioned)",
+      "total_epochs": 31,
+      "best_val_loss": 1.5486,
+      "best_val_epoch": 15,
+      "best_val_f1": 0.8154,
+      "best_val_acc": 0.5735,
+      "final_train_loss": 1.152,
+      "final_val_loss": 1.6446
+    }
+  ],
+  "playability": [
+    {
+      "name": "Production (Full)",
+      "playable_pct": 100.0,
+      "avg_alt": 0.8338283205796431,
+      "total_steps": 1244,
+      "double_steps": 14,
+      "jacks": 25,
+      "crossovers": 70,
+      "brackets": 88,
+      "footswitches": 17,
+      "eval_time_s": 10.833194017410278
+    },
+    {
+      "name": "Ablation 1 (No Tech)",
+      "playable_pct": 100.0,
+      "avg_alt": 0.791872517577868,
+      "total_steps": 906,
+      "double_steps": 5,
+      "jacks": 26,
+      "crossovers": 43,
+      "brackets": 56,
+      "footswitches": 24,
+      "eval_time_s": 8.514082431793213
+    },
+    {
+      "name": "Ablation 2 (No FSM)",
+      "playable_pct": 100.0,
+      "avg_alt": 0.8303626415833527,
+      "total_steps": 1834,
+      "double_steps": 35,
+      "jacks": 48,
+      "crossovers": 109,
+      "brackets": 100,
+      "footswitches": 37,
+      "eval_time_s": 10.732018947601318
+    },
+    {
+      "name": "Ablation 3 (Unconditioned)",
+      "playable_pct": 100.0,
+      "avg_alt": 0.8613967710929886,
+      "total_steps": 1951,
+      "double_steps": 38,
+      "jacks": 50,
+      "crossovers": 101,
+      "brackets": 68,
+      "footswitches": 64,
+      "eval_time_s": 14.270779132843018
+    }
+  ]
+}
