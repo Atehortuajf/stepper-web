@@ -203,36 +203,44 @@ export class ClientFootStateMachine {
         continue;
       }
 
-      // Invariant: Bipedal Contact Cardinality
+      // Invariant: Bipedal Contact Capacity
       let releasedCount = 0;
       for (const p of held) {
         if (this.isRelease[c][p]) releasedCount++;
       }
       const survivingHolds = nHeld - releasedCount;
       const newTaps = this.tapCount[c];
-      const maxAllowedTaps = Math.max(0, 2 - survivingHolds);
 
-      if (newTaps > maxAllowedTaps) {
-        mask[c] = NEG_INF;
-        continue;
-      }
-
-      // Invariant: Opposite panel unbracketability when 1 foot is held
-      if (survivingHolds === 1 && newTaps === 2 && this.isOppositeJump[c]) {
-        mask[c] = NEG_INF;
-        continue;
-      }
-
-      // Invariant: Jack threshold limit
-      if (this.state.lastPanel !== null && this.state.jackCount >= 3) {
-        if (
-          (this.isTap[c][this.state.lastPanel] ||
-            this.isHoldHead[c][this.state.lastPanel] ||
-            this.isRollHead[c][this.state.lastPanel]) &&
-          newTaps === 1
-        ) {
+      if (survivingHolds >= 2) {
+        // Both feet holding: 0 free feet. Only releases allowed!
+        if (newTaps > 0) {
           mask[c] = NEG_INF;
           continue;
+        }
+      } else if (survivingHolds === 1) {
+        // 1 foot holding: 1 free foot remaining.
+        // A single foot cannot hit >= 3 panels:
+        if (newTaps >= 3) {
+          mask[c] = NEG_INF;
+          continue;
+        }
+        // If 2 simultaneous hits with 1 foot, it MUST be an adjacent bracket, NOT an opposite jump:
+        if (newTaps === 2 && this.isOppositeJump[c]) {
+          mask[c] = NEG_INF;
+          continue;
+        }
+      }
+      // When survivingHolds === 0: 2 free feet available.
+      // Hands and quads are permitted according to difficulty gating.
+
+      // Soft Heuristic: Hyper-speed sustained jacks (dt < 0.25 beats and >= 2 previous taps on same arrow)
+      if (
+        this.state.lastPanel !== null &&
+        _deltaBeat < 0.25 &&
+        this.state.jackCount >= 2
+      ) {
+        if (this.isTap[c][this.state.lastPanel]) {
+          mask[c] -= 5.0;
         }
       }
     }

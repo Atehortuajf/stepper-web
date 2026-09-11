@@ -166,6 +166,8 @@ export function App() {
   const [proposedPlacements, setProposedPlacements] = useState<Placement[] | null>(null);
   const [generationLatency, setGenerationLatency] = useState<number | undefined>(undefined);
   const [modelUsed, setModelUsed] = useState<string | undefined>(undefined);
+  const [placementThreshold, setPlacementThreshold] = useState<number>(0.50);
+  const [generationError, setGenerationError] = useState<string | null>(null);
 
   // Parity & Biomechanics state
   const [parityResult, setParityResult] = useState<ParitySolveResult>(() => ({
@@ -252,10 +254,10 @@ export function App() {
       wasmInferenceEngine
         .initialize((pct) => setWasmStatus(`WASM ${pct}%`))
         .then((ready) => {
-          setWasmStatus(ready ? 'ready' : 'WASM (Rule Fallback)');
+          setWasmStatus(ready ? 'ready' : 'unloaded');
         })
         .catch(() => {
-          setWasmStatus('WASM (Rule Fallback)');
+          setWasmStatus('error');
         });
     });
 
@@ -755,6 +757,7 @@ export function App() {
   const handleGenerate = useCallback(async () => {
     setIsGenerating(true);
     setProposedPlacements(null);
+    setGenerationError(null);
 
     const startBeat = rangeStartBeat;
     const numBeats = Math.max(4.0, rangeEndBeat - rangeStartBeat);
@@ -807,7 +810,7 @@ export function App() {
           bpm,
           offset: timingEngine.offset,
           start_sec: timingEngine.beatToSeconds(startBeat),
-          threshold: 0.5,
+          threshold: placementThreshold,
         },
         waveformSlice,
         (pct) => {
@@ -818,49 +821,18 @@ export function App() {
       setProposedPlacements(resp.placements);
       setGenerationLatency(resp.latency_ms);
       setModelUsed(resp.model_used);
-    } catch {
-      // Client-side rule-based generator for offline preview
-      const startTime = performance.now();
-      const generated: Placement[] = [];
-      const density = Math.min(1.0, 0.4 + (difficultyMeter / 25.0) * 0.6);
-      const stepInterval = difficultyMeter >= 11 ? 0.25 : difficultyMeter >= 6 ? 0.5 : 1.0;
-
-      const singleTracks = ['1000', '0100', '0010', '0001'];
-      let lastTrack = 0;
-
-      for (let b = startBeat; b < startBeat + numBeats; b += stepInterval) {
-        if (Math.random() > density) continue;
-
-        let chord = '0000';
-        const isBracket = rawVector[3] > 0.4 && Math.random() < rawVector[3] * 0.5;
-        const isJack = rawVector[9] > 0.4 && Math.random() < rawVector[9] * 0.6;
-        const isFootswitch = rawVector[1] > 0.4 && Math.random() < rawVector[1] * 0.5;
-
-        if (isBracket) {
-          chord = '1100';
-        } else if (isJack || isFootswitch) {
-          chord = singleTracks[lastTrack];
-        } else {
-          lastTrack = (lastTrack + 1 + Math.floor(Math.random() * 3)) % 4;
-          chord = singleTracks[lastTrack];
-        }
-
-        generated.push({
-          beat: b,
-          arrows: chord,
-          chord_idx: 1,
-          confidence: 0.95,
-        });
-      }
-
-      setProposedPlacements(generated);
-      setGenerationLatency(performance.now() - startTime);
-      setModelUsed('fallback-local');
+    } catch (err) {
+      console.error('Inference generation failed:', err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setGenerationError(`Inference failed: ${errMsg}`);
+      setProposedPlacements([]);
+      setGenerationLatency(0);
+      setModelUsed('none');
     } finally {
       setIsGenerating(false);
       setWasmStatus((prev) => (prev.startsWith('Generating') ? 'ready' : prev));
     }
-  }, [rangeStartBeat, rangeEndBeat, timingEngine, techVector, difficultyMeter, audioEngine, engineMode]);
+  }, [rangeStartBeat, rangeEndBeat, timingEngine, techVector, difficultyMeter, audioEngine, engineMode, placementThreshold]);
 
   // Accept & Commit proposed notes to active chart
   const handleAcceptProposed = useCallback(
@@ -950,7 +922,12 @@ export function App() {
         holds: [],
       };
 
-      const targetBpm = isDefaultSample ? 140.0 : timingEngine.initialBpm;
+      // Run client-side tempo and phase offset estimation on audio-only upload
+      const tempoResult = audioEngine.estimateTempo();
+      const detectedBpm = tempoResult && tempoResult.bpm > 0
+        ? tempoResult.bpm
+        : (isDefaultSample ? 140.0 : timingEngine.initialBpm);
+      const detectedOffset = tempoResult ? tempoResult.offset : 0.0;
 
       setSimfile({
         version: 0.83,
@@ -973,8 +950,8 @@ export function App() {
         selectable: 'YES',
         displayBpm: '',
         timing: {
-          offset: 0.0,
-          bpms: [{ beat: 0, bpm: targetBpm }],
+          offset: detectedOffset,
+          bpms: [{ beat: 0, bpm: detectedBpm }],
           stops: [],
           delays: [],
           warps: [],
@@ -1073,6 +1050,28 @@ export function App() {
         onVolumeChange={handleVolumeChange}
         onToggleMobileMode={() => setIsMobileMode(!isMobileMode)}
       />
+
+      {/* Generation Error Banner */}
+      {generationError && (
+        <div
+          role="alert"
+          className="bg-red-950/90 border-b border-red-500/50 text-red-200 px-4 py-2 flex items-center justify-between z-50 text-xs font-mono"
+          data-testid="generation-error-banner"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-red-400 font-bold">ERROR:</span>
+            <span>{generationError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setGenerationError(null)}
+            className="text-red-400 hover:text-red-200 ml-4 px-2 py-0.5 border border-red-500/30 rounded cursor-pointer"
+            aria-label="Dismiss error"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Timing Modal (Shift+T) */}
       <TimingModal
@@ -1186,6 +1185,8 @@ export function App() {
             onChangeTechVector={setTechVector}
             difficultyMeter={difficultyMeter}
             onChangeDifficultyMeter={setDifficultyMeter}
+            placementThreshold={placementThreshold}
+            onPlacementThresholdChange={setPlacementThreshold}
             isGenerating={isGenerating}
             proposedPlacements={proposedPlacements}
             parityResult={parityResult}
@@ -1269,6 +1270,8 @@ export function App() {
               onDifficultyTierChange={setDifficultyTier}
               difficultyMeter={difficultyMeter}
               onDifficultyMeterChange={setDifficultyMeter}
+              placementThreshold={placementThreshold}
+              onPlacementThresholdChange={setPlacementThreshold}
             />
           </aside>
 

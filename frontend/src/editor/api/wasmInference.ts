@@ -36,6 +36,10 @@ function yieldToMain(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function isNodeEnv(): boolean {
+  return typeof (globalThis as any).process !== 'undefined' && (globalThis as any).process?.versions?.node != null;
+}
+
 export class WasmInferenceEngine {
   private placementSession: ort.InferenceSession | null = null;
   private decoderSession: ort.InferenceSession | null = null;
@@ -56,6 +60,7 @@ export class WasmInferenceEngine {
 
   private configureOrtEnvironment(): void {
     if (typeof window === 'undefined') return;
+    if (isNodeEnv()) return;
 
     // Configure WASM paths relative to absolute base URL
     const cleanBase = typeof window !== 'undefined'
@@ -81,6 +86,9 @@ export class WasmInferenceEngine {
   private getWorker(): Worker | null {
     if (this.worker) return this.worker;
     if (typeof window === 'undefined' || typeof Worker === 'undefined') {
+      return null;
+    }
+    if (isNodeEnv()) {
       return null;
     }
     try {
@@ -177,19 +185,27 @@ export class WasmInferenceEngine {
 
       // 2. Fallback: Initialize on main thread
       try {
-        const cleanBase = typeof window !== 'undefined'
-          ? new URL(import.meta.env.BASE_URL || './', window.location.href).href
-          : './';
-        const placementUrl = cleanBase.endsWith('/')
-          ? `${cleanBase}models/stepper_placement.onnx`
-          : `${cleanBase}/models/stepper_placement.onnx`;
-        const decoderUrl = cleanBase.endsWith('/')
-          ? `${cleanBase}models/stepper_decoder.onnx`
-          : `${cleanBase}/models/stepper_decoder.onnx`;
+        let placementUrl: string;
+        let decoderUrl: string;
+        const isNode = isNodeEnv();
+        if (isNode && typeof window !== 'undefined' && window.location?.hostname === 'localhost') {
+          placementUrl = 'public/models/stepper_placement.onnx';
+          decoderUrl = 'public/models/stepper_decoder.onnx';
+        } else {
+          const cleanBase = typeof window !== 'undefined'
+            ? new URL(import.meta.env.BASE_URL || './', window.location.href).href
+            : './';
+          placementUrl = cleanBase.endsWith('/')
+            ? `${cleanBase}models/stepper_placement.onnx`
+            : `${cleanBase}/models/stepper_placement.onnx`;
+          decoderUrl = cleanBase.endsWith('/')
+            ? `${cleanBase}models/stepper_decoder.onnx`
+            : `${cleanBase}/models/stepper_decoder.onnx`;
+        }
 
         // Check WebGPU availability
         let ep: WasmExecutionProvider = 'wasm';
-        if (typeof navigator !== 'undefined' && 'gpu' in navigator) {
+        if (!isNode && typeof navigator !== 'undefined' && 'gpu' in navigator) {
           try {
             const adapter = await (navigator as any).gpu?.requestAdapter();
             if (adapter) {
@@ -222,7 +238,7 @@ export class WasmInferenceEngine {
         onProgress?.(100);
         return true;
       } catch (err) {
-        console.warn('Failed to load in-browser ONNX models, falling back to rule-based engine:', err);
+        console.error('Failed to load in-browser ONNX models:', err);
         this.status = 'error';
         this.errorMessage = err instanceof Error ? err.message : String(err);
         return false;
@@ -257,7 +273,10 @@ export class WasmInferenceEngine {
     // 2. Main thread fallback with chunked event-loop yielding
     const isReady = await this.initialize((pct) => onProgress?.(pct, 'Loading models'));
     if (!isReady || !this.placementSession || !this.decoderSession) {
-      return this.generateRuleBasedFallback(req, startTime);
+      if (req.force_fallback) {
+        return this.generateRuleBasedFallback(req, startTime);
+      }
+      throw new Error(this.errorMessage || 'In-browser neural models not loaded or failed to initialize');
     }
 
     const startBeat = req.start_beat ?? 0.0;
@@ -267,7 +286,7 @@ export class WasmInferenceEngine {
     const difficultyMeter =
       typeof req.difficulty === 'number' ? req.difficulty : parseInt(req.difficulty, 10) || 9;
     const diffIdx = Math.max(0, Math.min(4, Math.floor((difficultyMeter - 1) / 4)));
-    const threshold = req.threshold ?? 0.5;
+    const threshold = req.threshold ?? (diffIdx === 0 ? 0.30 : 0.50);
     const temperature = req.temperature ?? 1.0;
     const useFsm = req.use_fsm ?? true;
 
@@ -305,18 +324,41 @@ export class WasmInferenceEngine {
     const acousticMapData = pResults.acoustic_map.data as Float32Array;
     const totalTicks = numBeats * 48;
 
-    // 3. Peak Picking & Non-Maximum Suppression (3-tick window)
+    // 3. Peak Picking & Non-Maximum Suppression (strict inequality & >=6 tick refractory period)
     onProgress?.(50, 'Peak picking & NMS');
     await yieldToMain();
-    const placedTicks: number[] = [];
-    for (let t = 0; t < totalTicks; t++) {
-      const pVal = probsData[t];
-      if (pVal > threshold) {
-        const left = t > 0 ? probsData[t - 1] : 0.0;
-        const right = t < totalTicks - 1 ? probsData[t + 1] : 0.0;
-        if (pVal >= left && pVal >= right) {
-          placedTicks.push(t);
+    const MIN_REFRACTORY_TICKS = 6;
+
+    const pickPeaks = (th: number): number[] => {
+      const ticks: number[] = [];
+      for (let t = 0; t < totalTicks; t++) {
+        const pVal = probsData[t];
+        if (pVal > th) {
+          const left = t > 0 ? probsData[t - 1] : 0.0;
+          const right = t < totalTicks - 1 ? probsData[t + 1] : 0.0;
+          if (pVal > left && pVal >= right) {
+            if (
+              ticks.length === 0 ||
+              t - ticks[ticks.length - 1] >= MIN_REFRACTORY_TICKS
+            ) {
+              ticks.push(t);
+            }
+          }
         }
+      }
+      return ticks;
+    };
+
+    let placedTicks = pickPeaks(threshold);
+
+    // If no peaks found and threshold was not explicitly specified, adaptively lower threshold
+    if (placedTicks.length === 0 && req.threshold === undefined) {
+      let maxP = 0.0;
+      for (let i = 0; i < totalTicks; i++) {
+        if (probsData[i] > maxP) maxP = probsData[i];
+      }
+      if (maxP >= 0.15) {
+        placedTicks = pickPeaks(maxP * 0.75);
       }
     }
 
@@ -507,16 +549,17 @@ export class WasmInferenceEngine {
     const placements: Placement[] = [];
     for (let b = startBeat; b < startBeat + numBeats; b += stepInterval) {
       let chord = '0000';
-      const isBracket = zTech[3] > 0.4 && Math.random() < zTech[3] * 0.5;
-      const isJack = zTech[9] > 0.4 && Math.random() < zTech[9] * 0.6;
-      const isFootswitch = zTech[1] > 0.4 && Math.random() < zTech[1] * 0.5;
+      const pseudoRand = ((Math.round(b * 100) * 9301 + 49297) % 233280) / 233280;
+      const isBracket = zTech[3] > 0.4 && pseudoRand < zTech[3] * 0.5;
+      const isJack = zTech[9] > 0.4 && pseudoRand < zTech[9] * 0.6;
+      const isFootswitch = zTech[1] > 0.4 && pseudoRand < zTech[1] * 0.5;
 
       if (isBracket) {
         chord = '1100';
       } else if (isJack || isFootswitch) {
         chord = singleTracks[lastTrack];
       } else {
-        lastTrack = (lastTrack + 1 + Math.floor(Math.random() * 3)) % 4;
+        lastTrack = (lastTrack + 1 + Math.floor(pseudoRand * 3)) % 4;
         chord = singleTracks[lastTrack];
       }
 

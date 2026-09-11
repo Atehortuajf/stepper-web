@@ -7,3 +7,4 @@ export * from './AudioEngine';
 export * from './WaveformRenderer';
 export * from './AudioWaveformViewer';
 export * from './wavEncoder';
+export * from './tempoEstimator';

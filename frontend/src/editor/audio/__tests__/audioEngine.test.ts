@@ -249,4 +249,33 @@ describe('AudioEngine & WAV Encoder', () => {
 
     expect(engine.isPlaying).toBe(false);
   });
+
+  it('estimates tempo from loaded audio buffer via estimateTempo()', () => {
+    const engine = new AudioEngine();
+    expect(engine.estimateTempo()).toBeNull();
+
+    // Create a 150 BPM synthetic metronome buffer
+    const sr = 44100;
+    const dur = 10;
+    const numSamples = sr * dur;
+    const ch = new Float32Array(numSamples);
+    const interval = Math.floor(sr * (60 / 150));
+    for (let i = 0; i < numSamples; i += interval) {
+      for (let s = 0; s < 400 && i + s < numSamples; s++) {
+        ch[i + s] = Math.sin((2 * Math.PI * 800 * s) / sr) * Math.exp(-s / 100);
+      }
+    }
+    const mockBuffer = {
+      numberOfChannels: 1,
+      sampleRate: sr,
+      duration: dur,
+      length: numSamples,
+      getChannelData: () => ch,
+    } as unknown as AudioBuffer;
+
+    engine.setAudioBuffer(mockBuffer);
+    const result = engine.estimateTempo();
+    expect(result).not.toBeNull();
+    expect(result?.bpm).toBe(150);
+  });
 });

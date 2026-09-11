@@ -8,12 +8,11 @@
 import * as ort from 'onnxruntime-web';
 import { ClientAudioFeatureExtractor } from '../audio/clientFeatureExtract';
 import {
-  CHORD_TO_ID,
   ClientFootStateMachine,
   ID_TO_CHORD,
   VOCAB_SIZE,
 } from '../api/fsmMask';
-import type { GenerateRequest, GenerateResponse, Placement } from '../api/stepperApi';
+import type { GenerateRequest, Placement } from '../api/stepperApi';
 
 let placementSession: ort.InferenceSession | null = null;
 let decoderSession: ort.InferenceSession | null = null;
@@ -81,56 +80,6 @@ async function initEngine(baseUrl?: string): Promise<boolean> {
   return initPromise;
 }
 
-/**
- * Procedural rule-based generator for offline preview or fallback.
- */
-function generateRuleBasedFallback(
-  req: GenerateRequest,
-  startTime: number
-): GenerateResponse {
-  const startBeat = req.start_beat ?? 0.0;
-  const numBeats = Math.max(4.0, req.num_beats ?? 16.0);
-  const difficultyMeter =
-    typeof req.difficulty === 'number' ? req.difficulty : parseInt(req.difficulty, 10) || 9;
-  const diffIdx = Math.max(0, Math.min(4, Math.floor((difficultyMeter - 1) / 4)));
-  const zTech = req.tech_vector || new Array(16).fill(0);
-
-  const stepInterval = difficultyMeter >= 11 ? 0.25 : difficultyMeter >= 6 ? 0.5 : 1.0;
-  const singleTracks = ['1000', '0100', '0010', '0001'];
-  let lastTrack = 0;
-
-  const placements: Placement[] = [];
-  for (let b = startBeat; b < startBeat + numBeats; b += stepInterval) {
-    let chord = '0000';
-    const isBracket = zTech[3] > 0.4 && Math.random() < zTech[3] * 0.5;
-    const isJack = zTech[9] > 0.4 && Math.random() < zTech[9] * 0.6;
-    const isFootswitch = zTech[1] > 0.4 && Math.random() < zTech[1] * 0.5;
-
-    if (isBracket) {
-      chord = '1100';
-    } else if (isJack || isFootswitch) {
-      chord = singleTracks[lastTrack];
-    } else {
-      lastTrack = (lastTrack + 1 + Math.floor(Math.random() * 3)) % 4;
-      chord = singleTracks[lastTrack];
-    }
-
-    placements.push({
-      beat: Number(b.toFixed(4)),
-      arrows: chord,
-      chord_idx: CHORD_TO_ID[chord] || 1,
-      confidence: 0.95,
-    });
-  }
-
-  return {
-    placements,
-    latency_ms: performance.now() - startTime,
-    difficulty_id: diffIdx,
-    difficulty_str: ['Novice', 'Easy', 'Medium', 'Hard', 'Expert'][diffIdx],
-    model_used: 'client-rule',
-  };
-}
 
 /**
  * Run dual-stage neural inference in the Web Worker.
@@ -185,17 +134,40 @@ async function runGeneration(
   const acousticMapData = pResults.acoustic_map.data as Float32Array; // [1, totalTicks, 256]
   const totalTicks = numBeats * 48;
 
-  // 3. Peak picking & non-maximum suppression (3-tick window)
+  // 3. Peak picking & non-maximum suppression (strict inequality & >=6 tick refractory period)
   self.postMessage({ type: 'progress', id, percent: 50, stage: 'Peak picking & NMS' });
-  const placedTicks: number[] = [];
-  for (let t = 0; t < totalTicks; t++) {
-    const pVal = probsData[t];
-    if (pVal > threshold) {
-      const left = t > 0 ? probsData[t - 1] : 0.0;
-      const right = t < totalTicks - 1 ? probsData[t + 1] : 0.0;
-      if (pVal >= left && pVal >= right) {
-        placedTicks.push(t);
+  const MIN_REFRACTORY_TICKS = 6;
+
+  const pickPeaks = (th: number): number[] => {
+    const ticks: number[] = [];
+    for (let t = 0; t < totalTicks; t++) {
+      const pVal = probsData[t];
+      if (pVal > th) {
+        const left = t > 0 ? probsData[t - 1] : 0.0;
+        const right = t < totalTicks - 1 ? probsData[t + 1] : 0.0;
+        if (pVal > left && pVal >= right) {
+          if (
+            ticks.length === 0 ||
+            t - ticks[ticks.length - 1] >= MIN_REFRACTORY_TICKS
+          ) {
+            ticks.push(t);
+          }
+        }
       }
+    }
+    return ticks;
+  };
+
+  let placedTicks = pickPeaks(threshold);
+
+  // If no peaks found and threshold was not explicitly specified, adaptively lower threshold
+  if (placedTicks.length === 0 && req.threshold === undefined) {
+    let maxP = 0.0;
+    for (let i = 0; i < totalTicks; i++) {
+      if (probsData[i] > maxP) maxP = probsData[i];
+    }
+    if (maxP >= 0.15) {
+      placedTicks = pickPeaks(maxP * 0.75);
     }
   }
 
@@ -371,15 +343,21 @@ self.onmessage = async (e: MessageEvent) => {
     try {
       const ready = await initEngine(data.baseUrl);
       if (!ready || !placementSession || !decoderSession || !featureExtractor) {
-        const fallback = generateRuleBasedFallback(data.req, startTime);
-        self.postMessage({ type: 'complete', id: data.id, response: fallback });
+        self.postMessage({
+          type: 'error',
+          id: data.id,
+          error: 'In-browser neural models not ready or failed to initialize',
+        });
         return;
       }
       await runGeneration(data.id, data.req, data.waveform, startTime);
     } catch (err) {
-      console.warn('[Worker] Inference error, falling back to rule engine:', err);
-      const fallback = generateRuleBasedFallback(data.req, startTime);
-      self.postMessage({ type: 'complete', id: data.id, response: fallback });
+      console.error('[Worker] Inference error:', err);
+      self.postMessage({
+        type: 'error',
+        id: data.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 };

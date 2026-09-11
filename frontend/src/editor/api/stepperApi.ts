@@ -217,16 +217,17 @@ export class StepperApiClient {
       return this.generateViaBackend(req);
     }
 
-    // Auto mode: Try in-browser WASM first, fallback to backend or rule
+    // Auto mode: Try in-browser WASM first, fallback to backend
     try {
       const { wasmInferenceEngine } = await import('./wasmInference');
       return await wasmInferenceEngine.generate(req, waveform, onProgress);
-    } catch {
+    } catch (wasmErr) {
       try {
         return await this.generateViaBackend(req);
-      } catch {
-        const { wasmInferenceEngine } = await import('./wasmInference');
-        return wasmInferenceEngine.generateRuleBasedFallback(req, performance.now());
+      } catch (backendErr) {
+        throw new Error(
+          `Inference failed: WASM (${wasmErr instanceof Error ? wasmErr.message : String(wasmErr)}), Backend (${backendErr instanceof Error ? backendErr.message : String(backendErr)})`
+        );
       }
     }
   }

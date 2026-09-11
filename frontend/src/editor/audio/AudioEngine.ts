@@ -5,6 +5,12 @@
  * waveform peak pyramids, STFT spectrogram extraction, and audio bookmarking.
  */
 
+import {
+  estimateTempoAndOffset,
+  type TempoEstimationResult,
+  type TempoEstimationOptions,
+} from './tempoEstimator';
+
 export interface AudioBookmark {
   id: string;
   time: number; // in seconds
@@ -151,6 +157,23 @@ export class AudioEngine {
 
     this._peakPyramid = null;
     this.spectrogram = null;
+  }
+
+  /**
+   * Estimates dominant BPM and phase offset using onset autocorrelation and harmonic comb prior.
+   */
+  public estimateTempo(options?: TempoEstimationOptions): TempoEstimationResult | null {
+    if (!this.audioBuffer && (!this.channelData || this.channelData.length === 0)) {
+      return null;
+    }
+    return estimateTempoAndOffset(
+      this.audioBuffer ?? {
+        channelData: this.channelData,
+        sampleRate: this.sampleRate,
+        duration: this.duration,
+      },
+      options
+    );
   }
 
   /**

@@ -18,6 +18,8 @@ export interface MobileDrawerProps {
   onChangeTechVector: (vector: TechVectorDict) => void;
   difficultyMeter: number;
   onChangeDifficultyMeter: (meter: number) => void;
+  placementThreshold?: number;
+  onPlacementThresholdChange?: (threshold: number) => void;
   isGenerating: boolean;
   proposedPlacements: Placement[] | null;
   parityResult: ParitySolveResult;
@@ -32,6 +34,8 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
   onChangeTechVector,
   difficultyMeter,
   onChangeDifficultyMeter,
+  placementThreshold = 0.50,
+  onPlacementThresholdChange,
   isGenerating,
   proposedPlacements,
   parityResult,
@@ -96,6 +100,29 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
           >
             +
           </button>
+        </div>
+      </div>
+
+      {/* Placement Sensitivity / Threshold */}
+      <div className="flex items-center justify-between py-2 border-b border-[#232738]">
+        <div className="flex flex-col">
+          <span className="font-semibold text-[#8A92A6]">Placement Sensitivity:</span>
+          <span className="text-[10px] text-[#6E7687]">Peak picking threshold (0.25 to 0.75)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="range"
+            min="0.25"
+            max="0.75"
+            step="0.05"
+            value={placementThreshold}
+            onChange={(e) => onPlacementThresholdChange?.(parseFloat(e.target.value))}
+            className="w-24 accent-[#00A2FF] cursor-pointer"
+            data-testid="mobile-slider-placement-threshold"
+          />
+          <span className="font-bold text-sm text-[#00A2FF] w-8 text-right">
+            {placementThreshold.toFixed(2)}
+          </span>
         </div>
       </div>
 

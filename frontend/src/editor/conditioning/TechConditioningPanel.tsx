@@ -23,6 +23,8 @@ export interface TechConditioningPanelProps {
   onDifficultyTierChange: (tier: number) => void;
   difficultyMeter: number;
   onDifficultyMeterChange: (meter: number) => void;
+  placementThreshold?: number;
+  onPlacementThresholdChange?: (threshold: number) => void;
   className?: string;
 }
 
@@ -33,6 +35,8 @@ export const TechConditioningPanel: React.FC<TechConditioningPanelProps> = ({
   onDifficultyTierChange,
   difficultyMeter,
   onDifficultyMeterChange,
+  placementThreshold = 0.50,
+  onPlacementThresholdChange,
   className = '',
 }) => {
   const [activeCategory, setActiveCategory] = useState<string>('All');
@@ -252,6 +256,29 @@ export const TechConditioningPanel: React.FC<TechConditioningPanelProps> = ({
             </div>
           );
         })}
+      </div>
+
+      {/* Placement Sensitivity / Threshold Control */}
+      <div className="flex items-center justify-between border-t border-[#212636] pt-2 mt-1">
+        <div className="flex flex-col">
+          <span className="font-semibold text-[#8b949e] text-[11px]">Placement Sensitivity</span>
+          <span className="text-[10px] text-[#586074]">Peak picking threshold (lower = denser)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="range"
+            min="0.25"
+            max="0.75"
+            step="0.05"
+            value={placementThreshold}
+            onChange={(e) => onPlacementThresholdChange?.(parseFloat(e.target.value))}
+            className="w-24 accent-[#00e5ff] cursor-pointer"
+            data-testid="slider-placement-threshold"
+          />
+          <span className="font-mono text-[11px] text-[#00e5ff] w-8 text-right">
+            {placementThreshold.toFixed(2)}
+          </span>
+        </div>
       </div>
     </div>
   );
