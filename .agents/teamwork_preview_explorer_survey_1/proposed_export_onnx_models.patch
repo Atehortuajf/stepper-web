@@ -1,0 +1,80 @@
+--- a/scripts/export_onnx_models.py
++++ b/scripts/export_onnx_models.py
+@@ -10,6 +10,7 @@ import os
+ import sys
++import shutil
+ from pathlib import Path
+ import numpy as np
+ import torch
+@@ -198,24 +199,26 @@ def export_models(
+         import onnxruntime as ort
+ 
+         # Verify Placement across multiple sequence lengths (including > 21 beats)
+         p_sess = ort.InferenceSession(placement_out)
+-        test_beats = 16
+-        audio_np = np.random.randn(1, 2, test_beats, 48, 128).astype(np.float32)
+-        diff_np = np.array([3], dtype=np.int64)
+-        tech_np = np.zeros((1, 16), dtype=np.float32)
+-
+-        ort_probs, ort_map = p_sess.run(
+-            None,
+-            {"audio": audio_np, "difficulty": diff_np, "tech_vector": tech_np},
+-        )
+-
+-        with torch.no_grad():
+-            pt_probs, pt_map = p_wrapper(
+-                torch.from_numpy(audio_np),
+-                torch.from_numpy(diff_np),
+-                torch.from_numpy(tech_np),
+-            )
+-
+-        p_err = np.abs(ort_probs - pt_probs.numpy()).max()
+-        map_err = np.abs(ort_map - pt_map.numpy()).max()
+-        print(f"Placement probs max error: {p_err:.2e}")
+-        print(f"Placement acoustic map max error: {map_err:.2e}")
+-        assert p_err < 1e-4, f"Placement parity check failed: {p_err}"
+-        assert map_err < 1e-4, f"Acoustic map parity check failed: {map_err}"
+-        print("Placement parity: PASSED (max error < 1e-4)")
++        for test_beats in [16, 32, 48, 64]:
++            audio_np = np.random.randn(1, 2, test_beats, 48, 128).astype(np.float32)
++            diff_np = np.array([3], dtype=np.int64)
++            tech_np = np.zeros((1, 16), dtype=np.float32)
++
++            ort_probs, ort_map = p_sess.run(
++                None,
++                {"audio": audio_np, "difficulty": diff_np, "tech_vector": tech_np},
++            )
++
++            with torch.no_grad():
++                pt_probs, pt_map = p_wrapper(
++                    torch.from_numpy(audio_np),
++                    torch.from_numpy(diff_np),
++                    torch.from_numpy(tech_np),
++                )
++
++            p_err = np.abs(ort_probs - pt_probs.numpy()).max()
++            map_err = np.abs(ort_map - pt_map.numpy()).max()
++            print(f"Placement ({test_beats} beats) probs max error: {p_err:.2e}, map max error: {map_err:.2e}")
++            assert p_err < 1e-4, f"Placement parity check failed for {test_beats} beats: {p_err}"
++            assert map_err < 1e-4, f"Acoustic map parity check failed for {test_beats} beats: {map_err}"
++        print("Placement multi-length parity: PASSED (all max errors < 1e-4)")
+@@ -262,6 +265,13 @@ def export_models(
+         print("Decoder parity: PASSED (max error < 1e-4)")
+ 
++    # Mirror to dist/models if it exists
++    dist_dir = Path("/Users/ate/Projects/stepper-web/frontend/dist/models")
++    if dist_dir.exists():
++        shutil.copy2(placement_out, dist_dir / "stepper_placement.onnx")
++        shutil.copy2(decoder_out, dist_dir / "stepper_decoder.onnx")
++        print(f"Copied models to {dist_dir}")
++
+     print("\nAll ONNX models successfully exported and validated!")
+     return {"placement": placement_out, "decoder": decoder_out}
+@@ -271,7 +281,7 @@ def main() -> None:
+     parser.add_argument(
+         "--weights",
+         type=str,
+-        default="/Users/ate/Projects/stepper-web/backend/models/stepper_weights_fp16.pt",
++        default="/Users/ate/Projects/Stepper/checkpoints/stepper_weights_fp16.pt",
+         help="Path to trained PyTorch weights",
+     )

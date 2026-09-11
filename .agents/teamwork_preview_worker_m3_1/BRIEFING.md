@@ -1,7 +1,7 @@
-# BRIEFING — 2026-09-08T07:12:35Z
+# BRIEFING — 2026-09-11T19:35:18Z
 
 ## Mission
-Implement 16-D Stepper AI technique conditioning, interactive chart generation with diff preview, and Viterbi biomechanical foot parity overlay for Stepper-Web.
+Eliminate silent Math.random() fallbacks in inference pipeline, calibrate peak picking (strict inequality, >=6 refractory ticks, adjustable threshold), align biomechanical FSM mask in fsmMask.ts with fsm_mask.py ground truth, and ensure 100% tests and clean build.
 
 ## 🔒 My Identity
 - Archetype: Milestone Worker
@@ -23,52 +23,49 @@ Implement 16-D Stepper AI technique conditioning, interactive chart generation w
 - DO NOT CHEAT: genuine implementations only, no hardcoding or dummy implementations.
 
 ## Current Parent
-- Conversation ID: d6a1364c-5a26-4dee-8451-ea3606814a3a
-- Updated: 2026-09-08T07:12:35Z
+- Conversation ID: a770b17f-ae4e-46a0-8f24-850f3e3f4269
+- Updated: 2026-09-11T19:35:18Z
 
 ## Task Summary
-- **What to build**: 16-D Technique Conditioning Panel, Stepper API client (REST + WebSocket), Diff Overlay & Generator, Biomechanical Foot Parity Ribbon / Heatmap / Warnings, desktop DAW integration in App.tsx, unit and component tests.
-- **Success criteria**: All components integrated into DAW, responsive state management, 100% genuine logic matching Stepper spec, all tests pass, build and lint pass cleanly.
-- **Interface contracts**: /Users/ate/Projects/stepper-web/PROJECT.md § Interface Contracts
-- **Code layout**: /Users/ate/Projects/stepper-web/PROJECT.md § Code Layout
+- **What to build**:
+  1. Remove silent Math.random() fallback loop in App.tsx handleGenerateSteps (display error banner/toast, clear proposed placements, log error).
+  2. Remove silent fallback in inference.worker.ts (post explicit { type: 'error', error } messages on unready or catch).
+  3. Remove silent fallback in wasmInference.ts and stepperApi.ts (propagate errors cleanly; empty placements when no peaks).
+  4. Calibrate peak picking: strict inequality (pVal > left && pVal >= right), minimum refractory window >= 6 ticks (~44ms), adjustable threshold (default 0.50).
+  5. Fix FSM mask in fsmMask.ts to match fsm_mask.py: allow 2-tap brackets when 1 foot held, allow hands/quads on Expert, apply soft penalty -5.0 for jacks when _deltaBeat < 0.25 and jackCount >= 2.
+  6. 100% tests passing and clean build.
+- **Success criteria**: 100% pass on npm test (all suites), npm run build passes with 0 errors, no silent random note generation.
 
 ## Key Decisions Made
-- Canonical 16-D taxonomy in techFeatures.ts strictly mirrors stepper/data/tech_tags.py.
-- Presets (Pure Stream, Footswitch/Tech, Brackets & Doubles, Jackhammer, Reset / Balanced) and ITL tag generation describeTechVector match the Stepper specification.
-- DiffOverlay provides side-by-side ghost arrow comparison, diff classification (+ Add, ~ Mod, - Del, = Same), and Accept/Discard actions.
-- Local Viterbi biomechanical solver in localParitySolver.ts implements exact HMM dynamic programming matching stepper/validate/viterbi_solver.py, providing seamless offline capability and test stability while prioritizing live /api/solve-parity backend calls.
-- ParityTrack renders Left foot (#00b0ff), Right foot (#ff3366), Brackets ([BR]), and Heel-Toe labels (LH, LT, RH, RT).
+- Peak picking uses strict inequality on left (pVal > left && pVal >= right) to resolve plateaus deterministically to the earliest tick.
+- Minimum refractory period of 6 ticks (32nd note subdivision at 48 ticks/beat, ~44ms at 170 BPM) prevents physically impossible rapid triggers.
+- In fsmMask.ts, bipedal contact cardinality accurately mirrors fsm_mask.py: when 1 foot is held, up to 2 taps are permitted as long as they do not form an opposite jump (allowing valid adjacent brackets).
+- Jack penalty is soft (-5.0 logit penalty) conditioned on _deltaBeat < 0.25 and jackCount >= 2.
 
 ## Artifact Index
-- /Users/ate/Projects/stepper-web/.agents/teamwork_preview_worker_m3_1/BRIEFING.md — Worker state & identity
-- /Users/ate/Projects/stepper-web/.agents/teamwork_preview_worker_m3_1/progress.md — Liveness & task progress log
-- /Users/ate/Projects/stepper-web/.agents/teamwork_preview_worker_m3_1/handoff.md — Final hard handoff report
+- /Users/ate/Projects/stepper-web/.agents/teamwork_preview_worker_m3_1/BRIEFING.md — Worker state & memory
+- /Users/ate/Projects/stepper-web/.agents/teamwork_preview_worker_m3_1/progress.md — Heartbeat & task progress
+- /Users/ate/Projects/stepper-web/.agents/teamwork_preview_worker_m3_1/handoff.md — Handoff report
 
 ## Change Tracker
 - **Files modified**:
-  - `frontend/src/editor/api/stepperApi.ts`: Type-safe REST & WebSocket client for /api/generate, /api/solve-parity, /api/health.
-  - `frontend/src/editor/api/__tests__/stepperApi.test.ts`: 8 unit tests for client API methods.
-  - `frontend/src/editor/conditioning/techFeatures.ts`: 16-D technique taxonomy, presets, difficulty tiers, conversions, ITL tag formatting.
-  - `frontend/src/editor/conditioning/TechConditioningPanel.tsx`: Continuous sliders, preset buttons, difficulty tier/meter selectors, ITL tag badge.
-  - `frontend/src/editor/conditioning/MeasureRangeSelector.tsx`: Measure range and full chart selection controls.
-  - `frontend/src/editor/conditioning/DiffOverlay.tsx`: Interactive generation trigger, ghost arrow preview table, diff stats, Accept/Discard.
-  - `frontend/src/editor/conditioning/index.ts`: Barrel export.
-  - `frontend/src/editor/conditioning/__tests__/conditioning.test.tsx`: 14 unit and component tests.
-  - `frontend/src/editor/biomechanics/types.ts`: Biomechanical step, parity results, and warning interfaces.
-  - `frontend/src/editor/biomechanics/localParitySolver.ts`: Full HMM Viterbi parity solver, candidate generator, cost metrics, heel-toe assignment.
-  - `frontend/src/editor/biomechanics/ParityTrack.tsx`: Visual foot parity ribbon (#00b0ff, #ff3366, [BR], Heel-Toe, strain, warnings).
-  - `frontend/src/editor/biomechanics/HeatmapOverlay.tsx`: Transition cost strain distribution, interactive heat bars, playability status.
-  - `frontend/src/editor/biomechanics/UnplayabilityBanner.tsx`: High-visibility warning alert for double-steps and impossible crossovers.
-  - `frontend/src/editor/biomechanics/index.ts`: Barrel export.
-  - `frontend/src/editor/biomechanics/__tests__/biomechanics.test.tsx`: 13 unit and component tests.
-  - `frontend/src/App.tsx`: Full DAW desktop integration combining conditioning, diff overlay, parity ribbon, heatmaps, and note stream.
-- **Build status**: PASS (`npm run build` succeeds in 73ms; `npm run lint` 0 warnings, 0 errors).
-- **Pending issues**: None.
+  - `frontend/src/editor/api/fsmMask.ts`: Bipedal contact cardinality (bracket logic), hands/quads on Expert, jack soft penalty (-5.0).
+  - `frontend/src/editor/api/__tests__/fsmMask.test.ts`: Added tests for brackets with held foot, opposite jumps, hands/quads, and jack penalty.
+  - `frontend/src/editor/api/stepperApi.ts`: Removed silent random fallback in auto mode catch block; throws explicit descriptive error.
+  - `frontend/src/editor/workers/inference.worker.ts`: Removed rule-based fallback, posts explicit error message, calibrated peak picking (`pVal > left && pVal >= right`, refractory window 6 ticks, adaptive fallback threshold).
+  - `frontend/src/editor/api/wasmInference.ts`: Removed silent fallback from unready/error paths, calibrated peak picking, deterministic arithmetic in fallback, Node/browser path detection.
+  - `frontend/src/editor/api/__tests__/wasmInference.test.ts`: Added unit tests for plateau tie-breaking, refractory period, and threshold sensitivity.
+  - `frontend/src/editor/conditioning/TechConditioningPanel.tsx`: Added sensitivity / placement threshold slider [0.25, 0.75].
+  - `frontend/src/editor/ui/MobileDrawer.tsx`: Added sensitivity slider for mobile view.
+  - `frontend/src/App.tsx`: Removed Math.random fallback from catch block in handleGenerate, added error alert banner, wired threshold state to API and conditioning panels.
+- **Build status**: PASS (`tsc -b && vite build` completed in 2.94s with 0 errors)
+- **Pending issues**: None
 
 ## Quality Status
-- **Build/test result**: PASS (Frontend: 8 suites, 83 tests passed; Backend: 28 tests passed).
-- **Lint status**: 0 warnings, 0 errors across 35 files.
-- **Tests added/modified**: 35 new frontend tests across 3 suites (stepperApi: 8, conditioning: 14, biomechanics: 13).
+- **Build/test result**: PASS (17 test files, 175 tests passing, 100% pass rate)
+- **Lint status**: Clean (tsc -b passes with 0 errors)
+- **Tests added/modified**: `frontend/src/editor/api/__tests__/fsmMask.test.ts`, `frontend/src/editor/api/__tests__/wasmInference.test.ts`
 
 ## Loaded Skills
 - None specified in dispatch
+

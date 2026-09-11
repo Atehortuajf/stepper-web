@@ -1,0 +1,21 @@
+--- a/stepper/model/placement_net.py
++++ b/stepper/model/placement_net.py
+@@ -40,9 +40,15 @@ class RoPE(nn.Module):
+     def forward(self, q: torch.Tensor, k: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+         # q, k shape: (B, num_heads, seq_len, head_dim)
+         seq_len = q.shape[2]
+-        self._update_cache(seq_len, q.device, q.dtype)
+-        cos = self._cos_cached[:seq_len].unsqueeze(0).unsqueeze(1)
+-        sin = self._sin_cached[:seq_len].unsqueeze(0).unsqueeze(1)
++        if torch.jit.is_tracing():
++            t = torch.arange(seq_len, device=q.device, dtype=self.inv_freq.dtype)
++            freqs = t.unsqueeze(1) * self.inv_freq.unsqueeze(0)
++            cos = torch.cos(freqs).to(q.dtype).unsqueeze(0).unsqueeze(1)
++            sin = torch.sin(freqs).to(q.dtype).unsqueeze(0).unsqueeze(1)
++        else:
++            self._update_cache(seq_len, q.device, q.dtype)
++            cos = self._cos_cached[:seq_len].unsqueeze(0).unsqueeze(1)
++            sin = self._sin_cached[:seq_len].unsqueeze(0).unsqueeze(1)
+ 
+         half_dim = self.dim // 2
+         q1, q2 = q[..., :half_dim], q[..., half_dim:]

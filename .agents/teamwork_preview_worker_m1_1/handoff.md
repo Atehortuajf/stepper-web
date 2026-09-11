@@ -1,150 +1,189 @@
-# Milestone M1 Handoff Report: Core Stepchart Editor Engine & Audio/Timing
+# Milestone 1 Handoff Report: Dynamic RoPE Sequence Lengths & Genuine ONNX Export
 
-**Agent**: Milestone M1 Worker (`teamwork_preview_worker_m1_1`)  
+**Agent**: Worker 1 (`teamwork_preview_worker_m1_1`)  
 **Role**: implementer, qa, specialist  
 **Working Directory**: `/Users/ate/Projects/stepper-web/.agents/teamwork_preview_worker_m1_1`  
-**Target Ownership**: `/Users/ate/Projects/stepper-web/frontend/`  
-**Date**: 2026-09-08T06:57:30Z  
+**Date**: 2026-09-11T19:18:25Z  
 
 ---
 
 ## 1. Observation
 
-1. **Frontend Scaffolding**:
-   - Initialized React 19 + TypeScript + Vite 8 + Tailwind CSS v4 in `/Users/ate/Projects/stepper-web/frontend/`.
-   - `package.json` contains scripts: `"build": "tsc -b && vite build"`, `"test": "vitest run"`, `"lint": "oxlint"`.
+### 1.1 RoPE Fix in PlacementNet
+In `/Users/ate/Projects/Stepper/stepper/model/placement_net.py` lines 39–54, `RoPE.forward` was modified to compute rotary frequencies dynamically when tracing (`if torch.jit.is_tracing() or torch.onnx.is_in_onnx_export():`):
+```python
+    def forward(self, q: torch.Tensor, k: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        # q, k shape: (B, num_heads, seq_len, head_dim)
+        seq_len = q.shape[2]
+        if torch.jit.is_tracing() or torch.onnx.is_in_onnx_export():
+            t = torch.arange(seq_len, device=q.device, dtype=self.inv_freq.dtype)
+            freqs = t.unsqueeze(1) * self.inv_freq.unsqueeze(0)
+            cos = torch.cos(freqs).to(q.dtype).unsqueeze(0).unsqueeze(1)
+            sin = torch.sin(freqs).to(q.dtype).unsqueeze(0).unsqueeze(1)
+        else:
+            self._update_cache(seq_len, q.device, q.dtype)
+            cos = self._cos_cached[:seq_len].unsqueeze(0).unsqueeze(1)
+            sin = self._sin_cached[:seq_len].unsqueeze(0).unsqueeze(1)
 
-2. **Core Engine Modules Implemented**:
-   - `frontend/src/editor/engine/types.ts`: Strongly-typed interfaces for `Simfile`, `Chart`, `NoteRow`, `HoldNote`, `TimingData`, `Measure`, and game modes (`dance-single`, `dance-double`).
-   - `frontend/src/editor/engine/subdivisions.ts`: Canonical StepMania color hues:
-     - 4th note (quarter): `#ff2a55` (Red, tick % 48 == 0)
-     - 8th note (eighth): `#00a2ff` (Blue, tick % 24 == 0)
-     - 12th note (quarter triplet): `#9e3cff` (Purple, tick % 16 == 0)
-     - 16th note (sixteenth): `#ffd000` (Yellow, tick % 12 == 0)
-     - 24th note (eighth triplet): `#ff54be` (Pink, tick % 8 == 0)
-     - 32nd note: `#ff7b00` (Orange, tick % 6 == 0)
-     - 48th note (sixteenth triplet): `#00e5ff` (Cyan, tick % 4 == 0)
-     - 64th note: `#00e676` (Green, tick % 3 == 0)
-     - 96th note (32nd triplet): `#b0bec5` (Light Gray, tick % 2 == 0)
-     - 192nd note: `#78909c` (Dark Gray, tick % 1 == 0)
-   - `frontend/src/editor/engine/measureUtil.ts`: 192-tick grid math (`TICKS_PER_BEAT = 48`, `TICKS_PER_MEASURE = 192`), `beatToRow`, `rowToBeat`, and line minimization algorithm (`getSmallestNoteTypeForMeasure`) minimizing lines across `{4, 8, 12, 16, 24, 32, 48, 64, 96, 192}`.
-   - `frontend/src/editor/engine/msdParser.ts`: Full EBNF MSD lexer and parser handling tag parameter blocks (`#TAG:PARAM;`), comments (`//`), escape sequences (`\:`, `\;`, `\#`, `\\`), newline implicit tag recovery, note data parsing with hold/roll head-tail pairing (`'2'`/`'3'`, `'4'`/`'3'`), orphan tail discarding, unclosed head clamping, and modern `.ssc` split timing (`#NOTEDATA:;`).
-   - `frontend/src/editor/engine/smSerializer.ts`: Lossless `.sm` and `.ssc` serializer with 6-decimal precision formatting (`%.6f`), DDR radar value computation, and per-measure line minimization.
-   - `frontend/src/editor/engine/timingEngine.ts`: Exact piecewise continuous bi-directional timing engine ($t_{\text{audio}} \leftrightarrow \text{beat}$) supporting `#OFFSET`, `#BPMS`, `#STOPS`, `#DELAYS`, `#WARPS`, and `#TIMESIGNATURES`. During stop/delay intervals, `secondsToBeat` locks to the paused beat and `isPausedAt` reports freeze status.
+        half_dim = self.dim // 2
+        q1, q2 = q[..., :half_dim], q[..., half_dim:]
+        k1, k2 = k[..., :half_dim], k[..., half_dim:]
 
-3. **Audio & Waveform Engine Implemented**:
-   - `frontend/src/editor/audio/AudioEngine.ts`: Web Audio API decoder (MP3, OGG, WAV), multi-speed playback (0.25x to 2.0x), multi-resolution min/max peak pyramid builder (steps 128, 512, 2048, 8192), STFT spectrogram generator, and chronological audio bookmarking.
-   - `frontend/src/editor/audio/wavEncoder.ts`: Client-side 16-bit PCM WAV serializer.
-   - `frontend/src/editor/audio/WaveformRenderer.ts`: High-DPI HTML5 Canvas renderer drawing background, spectrogram heat map, dual/mono peak waveform, synchronized beat grid lines with canonical subdivision colors, audio bookmarks, and locked playhead cursor.
-   - `frontend/src/editor/audio/AudioWaveformViewer.tsx`: Interactive DAW scrub strip with zoom controls (1x to 64x), playback rates, spectrogram toggle, and live beat readout.
-   - `frontend/src/App.tsx`: Utilitarian DAW desktop application integrating simfile metadata, chart selection, interactive waveform viewer, and 192-tick note stream preview.
+        q_rot = torch.cat([q1 * cos - q2 * sin, q1 * sin + q2 * cos], dim=-1)
+        k_rot = torch.cat([k1 * cos - k2 * sin, k1 * sin + k2 * cos], dim=-1)
+        return q_rot, k_rot
+```
 
-4. **Build, Test, and Lint Command Results**:
-   - `npm run build`:
-     ```
-     > tsc -b && vite build
-     vite v8.2.2 building client environment for production...
-     transforming...
-     ✓ 24 modules transformed.
-     rendering chunks...
-     dist/index.html                   0.45 kB │ gzip:  0.29 kB
-     dist/assets/index-7QI1eJxF.css   14.79 kB │ gzip:  4.02 kB
-     dist/assets/index-DHT6ZOXg.js   235.37 kB │ gzip: 73.43 kB
-     ✓ built in 79ms
-     ```
-   - `npm test`:
-     ```
-     RUN  v5.0.0 /Users/ate/Projects/stepper-web/frontend
-     ✓ src/editor/engine/__tests__/timingEngine.test.ts (12 tests) 7ms
-     ✓ src/editor/engine/__tests__/subdivisions.test.ts (5 tests) 4ms
-     ✓ src/editor/engine/__tests__/measureUtil.test.ts (16 tests) 5ms
-     ✓ src/editor/engine/__tests__/msdParserAndSerializer.test.ts (11 tests) 8ms
-     ✓ src/editor/audio/__tests__/audioEngine.test.ts (4 tests) 6ms
-     Test Files  5 passed (5)
-          Tests  48 passed (48)
-     ```
-   - `npm run lint`:
-     ```
-     Found 0 warnings and 0 errors.
-     Finished in 7ms on 20 files with 116 rules using 10 threads.
-     ```
+### 1.2 Updated Export Script
+In `/Users/ate/Projects/Stepper/scripts/export_onnx_models.py`:
+- Imported `shutil`.
+- Updated default `--weights` argument to `/Users/ate/Projects/Stepper/checkpoints/stepper_weights_fp16.pt`.
+- Extended the numerical parity loop to evaluate $T_{\text{beats}} \in [16, 32, 48, 64]$ with strict assertion `< 1e-5`.
+- Added automatic mirroring to `/Users/ate/Projects/stepper-web/frontend/dist/models/`.
+
+### 1.3 ONNX Export Execution Output
+Executing `/Users/ate/Projects/Stepper/.venv/bin/python scripts/export_onnx_models.py` in `/Users/ate/Projects/Stepper`:
+```
+Loading weights from: /Users/ate/Projects/Stepper/checkpoints/stepper_weights_fp16.pt
+StepperSync model loaded successfully.
+
+--- Exporting PlacementNet ---
+Exported /Users/ate/Projects/stepper-web/frontend/public/models/stepper_placement.onnx (18.52 MB)
+
+--- Exporting StepSelectionDecoder ---
+Exported /Users/ate/Projects/stepper-web/frontend/public/models/stepper_decoder.onnx (13.71 MB)
+
+--- Verifying Numerical Parity with ONNX Runtime ---
+Placement (16 beats) probs max error: 1.55e-07, map max error: 6.20e-06
+Placement (32 beats) probs max error: 1.81e-07, map max error: 5.36e-06
+Placement (48 beats) probs max error: 1.15e-07, map max error: 5.96e-06
+Placement (64 beats) probs max error: 1.99e-07, map max error: 6.52e-06
+Placement multi-length parity: PASSED (all max errors < 1e-5)
+Decoder logits max error: 6.44e-06
+Decoder parity: PASSED (max error < 1e-5)
+Copied models to /Users/ate/Projects/stepper-web/frontend/dist/models
+
+All ONNX models successfully exported and validated!
+```
+
+### 1.4 Model Checkpoint Verification & MD5 Parity
+Target checkpoint:
+- `/Users/ate/Projects/Stepper/checkpoints/stepper_weights_fp16.pt`: 16,749,744 bytes (Epoch 11, step 7188).
+
+Exported ONNX models:
+- `/Users/ate/Projects/stepper-web/frontend/public/models/stepper_placement.onnx` (18.52 MB, MD5: `44b9c616171deb7a2c69bcd4cca646f5`)
+- `/Users/ate/Projects/stepper-web/frontend/public/models/stepper_decoder.onnx` (13.71 MB, MD5: `4c76afd000f973de5ee379a868b94407`)
+- `/Users/ate/Projects/stepper-web/frontend/dist/models/stepper_placement.onnx` (18.52 MB, MD5: `44b9c616171deb7a2c69bcd4cca646f5`)
+- `/Users/ate/Projects/stepper-web/frontend/dist/models/stepper_decoder.onnx` (13.71 MB, MD5: `4c76afd000f973de5ee379a868b94407`)
+
+### 1.5 Numerical Parity Stress Test Across Both Locations
+Running independent multi-length verification comparing PyTorch directly against ONNX Runtime across both `public/models` and `dist/models`:
+```
+=== Validating models in: /Users/ate/Projects/stepper-web/frontend/public/models ===
+Beats 16: probs_diff=1.30e-07, map_diff=5.36e-06, max_diff=5.36e-06
+Beats 32: probs_diff=2.53e-07, map_diff=7.57e-06, max_diff=7.57e-06
+Beats 64: probs_diff=2.24e-07, map_diff=7.75e-06, max_diff=7.75e-06
+Decoder: logits_diff=6.44e-06
+ALL PARITY CHECKS PASSED (< 1e-5)
+
+=== Validating models in: /Users/ate/Projects/stepper-web/frontend/dist/models ===
+Beats 16: probs_diff=1.30e-07, map_diff=5.36e-06, max_diff=5.36e-06
+Beats 32: probs_diff=2.53e-07, map_diff=7.57e-06, max_diff=7.57e-06
+Beats 64: probs_diff=2.24e-07, map_diff=7.75e-06, max_diff=7.75e-06
+Decoder: logits_diff=6.44e-06
+ALL PARITY CHECKS PASSED (< 1e-5)
+```
+Every difference is strictly below $10^{-5}$ ($1e-5$).
+
+### 1.6 Stepper Test Suite Pass Rate
+Executing `/Users/ate/Projects/Stepper/.venv/bin/pytest tests/`:
+```
+============================= 237 passed in 4.52s ==============================
+```
+100% of the 237 unit tests in `Stepper` passed cleanly with 0 failures and 0 errors.
 
 ---
 
 ## 2. Logic Chain
 
-1. **Step 1 — Grammar & Lexer Fidelity**:
-   - The MSD parser in `msdParser.ts` uses a 3-state FSA processing character streams directly. Escaped delimiters (`\:`, `\;`, `\#`, `\\`) bypass token actions. Unescaped `#` on a newline terminates prior unclosed tags, matching StepMania 5's `src/MsdFile.cpp`.
-   - Verified by tests in `msdParserAndSerializer.test.ts` checking escapes, comments, and newline recovery.
-
-2. **Step 2 — Line Minimization & Fixed Grid Invariants**:
-   - `getSmallestNoteTypeForMeasure` analyzes active ticks $T = \{t \in [0, 191] \mid \text{chord} \neq \text{"0000"}\}$ against strides $\{48, 24, 16, 12, 8, 6, 4, 3, 2, 1\}$.
-   - It selects the coarsest stride dividing all active ticks, minimizing line counts to $\{4, 8, 12, 16, 24, 32, 48, 64, 96, 192\}$.
-   - Verified by 16 tests in `measureUtil.test.ts` validating empty measures (4 lines), quarter notes (4 lines), 8ths (8 lines), 12ths (12 lines), 16ths (16 lines), up to 192 lines.
-
-3. **Step 3 — Exact Timing Mathematics**:
-   - The piecewise timing engine compiles critical beat slices and builds dual `TimeSegment` and `BeatSegment` tables.
-   - For stops ($D > 0$), elapsed audio time accumulates over $[t_{\text{stop}}, t_{\text{stop}} + D]$ while beat advancement is 0. Inverse lookup in `secondsToBeat` returns the stopped beat.
-   - Legacy negative stops and negative BPMs are converted to warps, pre-beat 0 pauses adjust offset, and overlapping warps coalesce.
-   - Verified by 12 tests in `timingEngine.test.ts` covering constant BPMs, variable BPMs, negative/positive offsets, stops, delays, warps, and bi-directional fidelity.
-
-4. **Step 4 — Lossless Round-Trip Serialization**:
-   - Parsing an existing `.sm` or `.ssc` file into AST, serializing it with `serializeSM`/`serializeSSC`, and re-parsing produces identical titles, artists, offsets, BPM lists, stop lists, split timing parameters, and row-by-row note placements.
-   - Verified by round-trip tests in `msdParserAndSerializer.test.ts` for both `.sm` and `.ssc` (including split timing and 8-panel doubles).
-
-5. **Step 5 — Audio Engine & Canvas Synchronization**:
-   - `AudioEngine.ts` maintains sample-accurate playback via `AudioContext.currentTime` with variable rates (0.25x to 2.0x).
-   - `WaveformRenderer.ts` projects the beat grid directly onto the audio timeline using `TimingEngine.beatToSeconds`, ensuring the visual cursor remains locked to the audio waveform and stops.
-   - Verified by 4 tests in `audioEngine.test.ts` testing 16-bit WAV encoding, bookmark sorting/navigation, playback rates, and Canvas rendering.
+1. **Static Cache Issue Resolved**:
+   Previously, tracing `PlacementInferenceWrapper` with $T=8$ beats baked a static 512-length constant cache into the graph, causing ONNXRuntime broadcast failures (`512 by 1536`) when $T_{\text{beats}} > 21$.
+2. **Dynamic Operations in ONNX Graph**:
+   By executing dynamic frequency computation when `torch.jit.is_tracing() or torch.onnx.is_in_onnx_export()` is active:
+   `t = torch.arange(seq_len, device=q.device, dtype=self.inv_freq.dtype)`
+   `freqs = t.unsqueeze(1) * self.inv_freq.unsqueeze(0)`
+   The ONNX exporter generates dynamic graph operators (`Shape` -> `Gather` -> `Range` -> `Mul`), enabling arbitrary sequence lengths at runtime without dimension mismatch.
+3. **Preservation of PyTorch Invariants**:
+   For native PyTorch execution, `_update_cache` continues to cache frequencies and update `self._seq_len_cached`, ensuring complete backward compatibility with existing tests such as `test_rope_dynamic_cache_growth`.
+4. **Authentic Weight Preservation**:
+   Loading genuine weights from `/Users/ate/Projects/Stepper/checkpoints/stepper_weights_fp16.pt` (Epoch 11, step 7188) compiles genuine single-precision ONNX models.
+5. **Exact Parity Achieved**:
+   Across 16, 32, 48, and 64 beats, max numerical error between PyTorch and ONNX Runtime is bounded by $7.75 \times 10^{-6}$ (strictly $< 1 \times 10^{-5}$).
 
 ---
 
 ## 3. Caveats
 
-- In headless Node test environments, `HTMLCanvasElement.getContext('2d')` logs a standard jsdom notice ("Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package"), but the test passes cleanly without throwing exceptions.
-- Web Audio API autoplay policies require user interaction in browser contexts before audio context starts playing; the engine handles this gracefully by resuming on user interaction.
-- No caveats regarding mathematical precision, format compliance, or test coverage.
+- `StepSelectionDecoder` is exported with a fixed sequence window $S=64$, matching client-side batching logic in `inference.worker.ts` and `wasmInference.ts`.
+- While the models are exported to both `frontend/public/models/` and `frontend/dist/models/`, any future clean rebuild (`npm run build`) in `frontend/` should preserve `public/` assets copied into `dist/`.
 
 ---
 
 ## 4. Conclusion
 
-Milestone M1 (Features F1–F7) is 100% complete and fully verified:
-- F1 (MSD Parser & Lexer): Complete.
-- F2 (Lossless .sm & .ssc Serializer): Complete.
-- F3 (192-Tick Beat Grid & Subdivisions): Complete.
-- F4 (Canonical StepMania Subdivision Colors): Complete.
-- F5 (Note Types & Game Modes: Singles & Doubles): Complete.
-- F6 (Interactive Audio Waveform & Spectrogram): Complete.
-- F7 (Piecewise Timing Engine): Complete.
-
-All 48 unit tests pass, `npm run build` succeeds in <100ms, and `npm run lint` reports 0 warnings and 0 errors.
+Milestone 1 tasks are completely fulfilled:
+1. Dynamic RoPE in `placement_net.py` eliminates the 512-tick static broadcast limitation for arbitrary beat lengths.
+2. `export_onnx_models.py` targets genuine checkpoint `stepper_weights_fp16.pt`, verifies 16, 32, 48, 64 beats, and copies models to both `frontend/public/models/` and `frontend/dist/models/`.
+3. Genuine ONNX models `stepper_placement.onnx` (18.52 MB) and `stepper_decoder.onnx` (13.71 MB) are deployed and verified.
+4. Numerical parity max difference is $< 1e-5$ across all tested lengths (16, 32, 64 beats) and decoder logits.
+5. All 237 Stepper unit tests pass cleanly.
 
 ---
 
 ## 5. Verification Method
 
-To independently verify this milestone:
-1. Navigate to frontend directory:
-   ```bash
-   cd /Users/ate/Projects/stepper-web/frontend
-   ```
-2. Run unit tests:
-   ```bash
-   npm test
-   ```
-   *Expected result*: 5 test files passed, 48 tests passed, 0 failures.
-3. Run build:
-   ```bash
-   npm run build
-   ```
-   *Expected result*: Exits with code 0, bundles production assets in `dist/`.
-4. Run linter:
-   ```bash
-   npm run lint
-   ```
-   *Expected result*: 0 warnings, 0 errors.
-5. Invalidation conditions:
-   - Any test failure in `npm test`.
-   - Any TypeScript compilation error in `tsc -b`.
-   - Modifying files outside `/Users/ate/Projects/stepper-web/frontend/`.
+### 5.1 Stepper Test Suite
+```bash
+/Users/ate/Projects/Stepper/.venv/bin/pytest /Users/ate/Projects/Stepper/tests/
+```
+*Expected result*: `237 passed` in ~5s.
+
+### 5.2 ONNX Multi-Length Parity Test
+```bash
+/Users/ate/Projects/Stepper/.venv/bin/python -c "
+import numpy as np, torch, onnxruntime as ort
+from stepper.model.stepper_sync import StepperSync
+from scripts.export_onnx_models import PlacementInferenceWrapper, DecoderFixedWrapper
+
+ckpt = torch.load('/Users/ate/Projects/Stepper/checkpoints/stepper_weights_fp16.pt', map_location='cpu', weights_only=True)
+model = StepperSync(); model.load_state_dict(ckpt.get('model_state_dict', ckpt)); model.eval()
+p_wrapper = PlacementInferenceWrapper(model.placement_net, cfg_scale=1.8).eval()
+
+for loc in ['frontend/public/models', 'frontend/dist/models']:
+    sess = ort.InferenceSession(f'/Users/ate/Projects/stepper-web/{loc}/stepper_placement.onnx')
+    for b in [16, 32, 64]:
+        aud = np.random.randn(1, 2, b, 48, 128).astype(np.float32)
+        p_ort, m_ort = sess.run(None, {'audio': aud, 'difficulty': np.array([3], dtype=np.int64), 'tech_vector': np.zeros((1, 16), dtype=np.float32)})
+        with torch.no_grad():
+            p_pt, m_pt = p_wrapper(torch.from_numpy(aud), torch.tensor([3], dtype=torch.long), torch.zeros(1, 16))
+        max_err = max(np.abs(p_ort - p_pt.numpy()).max(), np.abs(m_ort - m_pt.numpy()).max())
+        print(f'{loc} {b} beats max error: {max_err:.2e}')
+        assert max_err < 1e-5
+print('ALL PARITY CHECKS PASSED (< 1e-5)')
+"
+```
+*Expected result*: Prints errors $< 1e-5$ and exits with code 0.
+
+### 5.3 MD5 Hash Parity
+```bash
+md5 /Users/ate/Projects/stepper-web/frontend/public/models/*.onnx /Users/ate/Projects/stepper-web/frontend/dist/models/*.onnx
+```
+*Expected result*:
+- `stepper_placement.onnx`: `44b9c616171deb7a2c69bcd4cca646f5`
+- `stepper_decoder.onnx`: `4c76afd000f973de5ee379a868b94407`
+
+### 5.4 Invalidation Conditions
+- Any ONNXRuntime broadcast error (`512 by X`) on sequences $> 21$ beats.
+- Any parity discrepancy between PyTorch and ONNX Runtime $\ge 1e-5$.
+- Any failure in the 237 Stepper unit tests.
+

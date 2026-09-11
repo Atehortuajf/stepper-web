@@ -1,208 +1,162 @@
-# Milestone M3 Handoff Report: Interactive Conditioning & Biomechanical Parity
+# Milestone M3 Remediation Handoff Report: AI Inference Calibration & Biomechanical FSM Ground-Truth Parity
 
 **Agent**: Milestone M3 Worker (`teamwork_preview_worker_m3_1`)  
 **Role**: implementer, qa, specialist  
 **Working Directory**: `/Users/ate/Projects/stepper-web/.agents/teamwork_preview_worker_m3_1`  
 **Target Ownership**: `/Users/ate/Projects/stepper-web/frontend/`  
-**Date**: 2026-09-08T07:12:45Z  
+**Date**: 2026-09-11T19:46:00Z  
 **Status**: COMPLETE (Hard Handoff)
 
 ---
 
 ## 1. Observation
 
-1. **Write Ownership and Boundary Compliance**:
-   - All changes were strictly localized within `/Users/ate/Projects/stepper-web/frontend/` and `.agents/teamwork_preview_worker_m3_1/`.
-   - `backend/` and `tests/` were not modified.
-   - All 28 backend tests in `backend/tests/` were re-run and confirmed passing:
-     ```
-     backend/.venv/bin/pytest backend/tests -v
-     ======================== 28 passed, 2 warnings in 3.37s ========================
-     ```
+1. **Survey Findings & Defect Discovery (Survey 3 Handoff)**:
+   - In `frontend/src/App.tsx` (lines 821–859), `handleGenerateSteps` contained an unannounced silent fallback in its `catch` block that procedurally placed random steps (`Math.random() > 0.65 ? '1000' : ...`), completely concealing genuine ONNX WASM or backend inference failures from users.
+   - In `frontend/src/editor/workers/inference.worker.ts` and `frontend/src/editor/api/wasmInference.ts`, unready models or runtime exceptions silently fell back to `generateRuleBasedFallback(req)` populated with `Math.random()`.
+   - In `frontend/src/editor/api/stepperApi.ts`, the `'auto'` engine mode caught both WASM and backend failures and silently returned `generateRuleBasedFallback(req)`.
+   - Peak picking in `wasmInference.ts` used non-strict comparisons and an overly permissive refractory period (4 ticks = 29ms at 170 BPM), risking double-triggering on plateaus.
+   - In `frontend/src/editor/api/fsmMask.ts`, contact cardinality logic was over-restrictive compared to ground truth `stepper/model/fsm_mask.py`:
+     - When 1 foot held a freeze arrow, all 2-tap chords (chords with 2 taps) were strictly masked out, rejecting valid 2-tap brackets (e.g., heel-and-toe on Up+Right while Left foot holds Left).
+     - Hands and quads were unconditionally masked out on all difficulties, even though `fsm_mask.py` explicitly allows hands/quads for Expert difficulty (`difficulty_tier == 4`).
+     - Jack restrictions applied a hard mask $-\infty$, whereas `fsm_mask.py` applies a soft heuristic penalty logit reduction ($-5.0$) on rapid consecutive taps on the same panel.
 
-2. **Stepper API Client Implemented**:
+2. **Remediation Implemented in Codebase**:
+   - `frontend/src/editor/api/fsmMask.ts`:
+     - Implemented ground-truth bipedal contact cardinality matching `fsm_mask.py`: when 1 foot is held, up to 2 active taps are permitted, provided they do not form an opposite jump (`(0,3)` or `(1,2)`). 3 or more taps while holding remain masked out.
+     - Updated `fsmMask.updateState` and mask generation: allowed hands (3 arrows) and quads (4 arrows) when `difficulty >= 5` (Expert difficulty tier).
+     - Replaced hard jack mask with soft logit penalty: when `_deltaBeat < 0.25` and `this.state.jackCount >= 2`, applies a `-5.0` logit penalty rather than $-\infty$, mirroring the PyTorch ground truth.
    - `frontend/src/editor/api/stepperApi.ts`:
-     - `StepperApiClient` supporting REST endpoints (`GET /api/health`, `POST /api/generate`, `POST /api/solve-parity`) and WebSocket streaming (`WS /api/ws/generate`).
-     - Strongly-typed Pydantic-equivalent schemas: `GenerateRequest`, `Placement`, `GenerateResponse`, `SolveParityRequest`, `SolveParityResponse`, `AnnotatedStep`, `StepFlags`, `ParityStats`, `WSGenerateMessage`, `WSGenerateResponse`.
-     - Exported singleton `stepperApi`.
+     - Eliminated silent random fallback in auto mode catch block. Both WASM and Backend errors are preserved and re-thrown with descriptive context: `"Auto inference failed: WASM engine failed (...) and Backend engine failed (...)"`.
+   - `frontend/src/editor/workers/inference.worker.ts`:
+     - Removed `generateRuleBasedFallback` entirely.
+     - Posts explicit `{ type: 'error', id, error: string }` messages when models are unready or runtime exceptions occur.
+     - Calibrated peak picking with strict inequality tie-breaking (`pVal > left && pVal >= right`), refractory window $\ge 6$ ticks (~44ms at 170 BPM), and adaptive peak detection when threshold is not specified.
+   - `frontend/src/editor/api/wasmInference.ts`:
+     - Removed silent fallback invocation from unready and error execution paths. Throws explicit `Error` unless the caller explicitly requested `force_fallback: true`.
+     - Calibrated peak picking using strict plateau tie-breaking and refractory window $\ge 6$ ticks.
+     - Added `isNodeEnv()` environment detection using `(globalThis as any).process` to safely locate local `public/models/*.onnx` assets during Vitest / Node.js runs without browser URL scheme failures.
+     - Replaced non-deterministic `Math.random()` in `generateRuleBasedFallback` with deterministic arithmetic hashing.
+   - `frontend/src/editor/conditioning/TechConditioningPanel.tsx` & `frontend/src/editor/ui/MobileDrawer.tsx`:
+     - Added user-adjustable Sensitivity / Placement Threshold slider `[0.25, 0.75]` (default `0.50`) with step `0.01`.
+   - `frontend/src/App.tsx`:
+     - Removed silent `Math.random()` procedural fallback from `handleGenerate` `catch` block (lines 821–859).
+     - Added clear user-facing error alert banner under `TransportBar` (`generationError` state), clearing proposed placements and resetting latency on failure.
+     - Bound placement sensitivity slider state (`placementThreshold`, default `0.50`) into `stepperApi.generate` request payload and conditioning panel drawers.
 
-3. **16-D Technique Conditioning Modules Implemented**:
-   - `frontend/src/editor/conditioning/techFeatures.ts`:
-     - Full 16 canonical technique dimensions from `stepper/data/tech_tags.py`:
-       `crossover`, `footswitch`, `doublestep`, `bracket`, `bracket_under`, `bracket_crossover`, `sideswitch`, `kickswitch`, `holdswitch`, `jack`, `jump_jack`, `split_jack`, `bracket_tap`, `complex_rhythm`, `stream_stamina`, `no_tech`.
-     - Standard competitive style presets: `"Pure Stream"`, `"Footswitch/Tech"`, `"Brackets & Doubles"`, `"Jackhammer"`, `"Reset / Balanced"`.
-     - 5 difficulty tiers (Novice, Easy, Medium, Hard, Expert) with ITG meter ranges (1 to 25+).
-     - Conversions between dictionary and exact 16-D float array `[0.0, 1.0]^16`.
-     - `describeTechVector()` producing ITL shorthand string (e.g. `"FS+ BR XO-"`, `"No Tech"`, `"Balanced"`).
-   - `frontend/src/editor/conditioning/TechConditioningPanel.tsx`:
-     - Continuous sliders `[0.0, 1.0]` for all 16 features with step 0.01, reset actions, and numeric percentage readouts.
-     - Presets bar with active style indicator.
-     - Difficulty tier buttons and numeric meter stepper.
-     - Real-time ITL tags summary badge.
-   - `frontend/src/editor/conditioning/MeasureRangeSelector.tsx`:
-     - Measure range controls (`startMeasure` to `endMeasure`) vs full chart mode, converting measure boundaries to beats via `measureUtil`.
-     - Quick measure preset buttons (`0–4`, `4–8`, `8–16`).
-   - `frontend/src/editor/conditioning/DiffOverlay.tsx`:
-     - Interactive chart generation trigger with latency tracking and model indicator (`neural` / `fallback`).
-     - Live diff preview table comparing existing notes in range against proposed notes with ghost arrows.
-     - Diff item categorization: `+ Add` (`#00e676`), `~ Mod` (`#ffd000`), `- Del` (`#ff3366`), `= Same` (`#8b949e`).
-     - "Accept / Commit" action updating chart data model and "Discard" action reverting preview.
-
-4. **Biomechanical Foot Parity & Validator Implemented**:
-   - `frontend/src/editor/biomechanics/types.ts`:
-     - Interfaces for `BiomechanicalStep`, `FootDesignation` (`'L'`, `'R'`, `'LR'`, `'None'`), `HeelToeTag` (`'LH'`, `'LT'`, `'RH'`, `'RT'`), `ParityStatsData`, `UnplayabilityWarningItem`, and `ParitySolveResult`.
-   - `frontend/src/editor/biomechanics/localParitySolver.ts`:
-     - Client-side Viterbi dynamic programming solver strictly implementing the HMM transition matrix from `stepper/validate/viterbi_solver.py`.
-     - Models 4-panel coordinate plane (`Left: 0, Down: 1, Up: 2, Right: 3`), adjacent brackets (`(0,1)`, `(0,2)`, `(1,3)`, `(2,3)`), footswitches, rapid double-steps, jacks, candles, crossovers, and physical impossibility penalties (`1e9`).
-     - Computes step flags (`is_crossover`, `is_double_step`, `is_jack`, `is_bracket`, `is_footswitch`, `is_candle`) and assigns Heel-Toe designations (`LH`, `LT`, `RH`, `RT`).
-   - `frontend/src/editor/biomechanics/ParityTrack.tsx`:
-     - Visual foot parity ribbon rendered along each note row displaying Left foot (`#00b0ff`), Right foot (`#ff3366`), Jumps (`LR`), Bracket badge (`BR`), and Heel-Toe labels.
-     - Per-step transition strain indicator (green -> yellow -> orange -> red).
-     - Step warning flags (`DS`, `JACK`, `FAIL`, `WARN`).
-   - `frontend/src/editor/biomechanics/HeatmapOverlay.tsx`:
-     - Transition cost heatmap strip representing physical strain across steps, strain category percentages (Low, Med, High, Extreme), peak/average costs, and alternation rate.
-     - Clickable heat bars invoking `onSelectBeat`.
-   - `frontend/src/editor/biomechanics/UnplayabilityBanner.tsx`:
-     - High-visibility warning alert displaying count of fatal issues and warnings with expandable jump-to-beat details.
-
-5. **Desktop DAW Layout Integration in `frontend/src/App.tsx`**:
-   - Integrated left sidebar: Simfile metadata, chart switcher, 16-D Technique Conditioning Panel, StepMania color legend.
-   - Integrated center stage: Audio waveform strip, Unplayability Warning Banner, Generation & Measure Range toolbar, Heatmap Overlay, Diff Preview Overlay, and 192-tick Note Stream Grid with synchronized ParityTrack ribbon and ghost arrows.
-   - Dynamic parity solve automatically evaluates active chart notes via `/api/solve-parity` or seamless client Viterbi fallback.
-   - Committing proposed notes updates both `noteRows` and `notes` (Measure[] structure with line minimization) and re-evaluates parity in real-time.
-
-6. **Build, Test, and Lint Command Outputs**:
-   - `npm run lint`:
+3. **Verification Command Results**:
+   - `npm run build` (`tsc -b && vite build`):
      ```
-     > frontend@0.0.0 lint
-     > oxlint
-
-     Found 0 warnings and 0 errors.
-     Finished in 14ms on 35 files with 116 rules using 10 threads.
-     ```
-   - `npm run build`:
-     ```
-     > frontend@0.0.0 build
-     > tsc -b && vite build
-
      vite v8.2.2 building client environment for production...
      transforming...
-     ✓ 37 modules transformed.
+     ✓ 57 modules transformed.
      rendering chunks...
      computing gzip size...
-     dist/index.html                   0.45 kB │ gzip:  0.28 kB
-     dist/assets/index-DtLCoVKU.css   23.30 kB │ gzip:  5.40 kB
-     dist/assets/index-DKvtufew.js   278.82 kB │ gzip: 85.78 kB
-
-     ✓ built in 73ms
+     dist/index.html                                             0.46 kB │ gzip:     0.29 kB
+     dist/assets/inference.worker-Bz4xPXTz.js                  417.51 kB
+     dist/assets/ort-wasm-simd-threaded.jsep-D-icqfN-.wasm  27,797.17 kB │ gzip: 6,651.22 kB
+     dist/assets/index-B-4tZ5Yh.css                             37.31 kB │ gzip:     7.72 kB
+     dist/assets/api-DvKOe_Qp.js                                 0.12 kB │ gzip:     0.10 kB
+     dist/assets/index-DRcjLwCA.js                             343.57 kB │ gzip:   103.30 kB
+     dist/assets/wasmInference-CmNsWMVA.js                     417.93 kB │ gzip:   114.19 kB
+     ✓ built in 2.94s
      ```
-   - `npm test`:
+   - `npm test` (`vitest run`):
      ```
-     > frontend@0.0.0 test
-     > vitest run
-
-      RUN  v5.0.0 /Users/ate/Projects/stepper-web/frontend
-
-      ✓ src/editor/api/__tests__/stepperApi.test.ts (8 tests) 7ms
-      ✓ src/editor/engine/__tests__/subdivisions.test.ts (5 tests) 4ms
-      ✓ src/editor/engine/__tests__/timingEngine.test.ts (12 tests) 7ms
-      ✓ src/editor/engine/__tests__/measureUtil.test.ts (16 tests) 4ms
-      ✓ src/editor/engine/__tests__/msdParserAndSerializer.test.ts (11 tests) 15ms
-      ✓ src/editor/audio/__tests__/audioEngine.test.ts (4 tests) 4ms
-      ✓ src/editor/biomechanics/__tests__/biomechanics.test.tsx (13 tests) 47ms
-      ✓ src/editor/conditioning/__tests__/conditioning.test.tsx (14 tests) 80ms
-
-      Test Files  8 passed (8)
-           Tests  83 passed (83)
-        Start at  03:12:09
-        Duration  924ms
+     Test Files  17 passed (17)
+          Tests  175 passed (175)
+       Duration  5.18s
      ```
+     Passed all test suites including:
+     - `src/editor/api/__tests__/fsmMask.test.ts` (6 tests passed)
+     - `src/editor/api/__tests__/wasmInference.test.ts` (7 tests passed)
+     - `src/editor/api/__tests__/stepperApi.test.ts` (10 tests passed)
+     - `src/editor/__tests__/m6_m7_empirical_challenge.test.ts` (13 tests passed)
+     - `src/editor/__tests__/m2_adversarial_challenge.test.ts` (21 tests passed)
+     - `src/editor/__tests__/m5_adversarial_challenge.test.tsx` (10 tests passed)
+     - `src/editor/conditioning/__tests__/conditioning.test.tsx` (14 tests passed)
+     - `src/editor/biomechanics/__tests__/biomechanics.test.tsx` (13 tests passed)
 
 ---
 
 ## 2. Logic Chain
 
-1. **16-D Technique Conditioning Fidelity**:
-   - Stepper AI's architecture (`stepper/model/stepper_sync.py` and `stepper/data/tech_tags.py`) requires a 16-dimensional float vector in $[0.0, 1.0]^{16}$ to condition the autoregressive step selection decoder.
-   - `techFeatures.ts` codifies the exact key sequence: `crossover`, `footswitch`, `doublestep`, `bracket`, `bracket_under`, `bracket_crossover`, `sideswitch`, `kickswitch`, `holdswitch`, `jack`, `jump_jack`, `split_jack`, `bracket_tap`, `complex_rhythm`, `stream_stamina`, `no_tech`.
-   - `techVectorToArray()` guarantees that regardless of UI object key ordering, the resulting array matches the exact 16-D order expected by PyTorch and the FastAPI backend.
-   - Verified by 7 unit tests in `conditioning.test.tsx` checking clamping, order, dictionary round-trip, ITL shorthand generation, and presets.
+1. **Biomechanical FSM Mask Ground-Truth Parity**:
+   - PyTorch ground truth in `stepper/model/fsm_mask.py` lines 140–165 enforces anatomical constraints:
+     - Holding 1 foot on a panel consumes 1 limb. If a dancer taps with their other foot, they can hit 1 panel (single tap) or 2 panels simultaneously using a bracket (e.g., heel-toe on Left+Down or Up+Right). However, hitting 2 opposite panels (Left+Right `(0,3)` or Down+Up `(1,2)`) with a single foot is physically impossible (opposite jump).
+     - Furthermore, tapping 3 or more panels while 1 foot is pinned requires 4 limbs, which violates bipedal anatomy without hands.
+     - Therefore, in `fsmMask.ts`, when 1 foot is held:
+       `if (tapIndices.length >= 3) return -Infinity;`
+       `if (tapIndices.length === 2 && isOppositeJump(tapIndices[0], tapIndices[1])) return -Infinity;`
+     - When `difficulty >= 5` (Expert / ITG 12+), stamina and tech charts regularly feature hands (3 arrows) and quads (4 arrows). Masking hands/quads on Expert contradicted `fsm_mask.py` (`allow_hands = (difficulty_tier == 4)`). Allowing hands/quads on Expert aligns with high-level tournament charting standards.
+     - Fast consecutive taps on the same panel (jacks) are physically difficult but not impossible. Applying a soft logit penalty (`-5.0`) when `_deltaBeat < 0.25 && this.state.jackCount >= 2` discourages degenerate jackhammers while enabling intentional rhythmic jacks.
 
-2. **Interactive Chart Generation & Diff Preview**:
-   - Generating chart notes directly into the active song without previewing risks corrupting human choreographies.
-   - `DiffOverlay.tsx` isolates generated placements into a detached proposed state.
-   - Diff calculation maps existing notes and proposed notes on a unified beat timeline, identifying additions (`+ Add`), chord modifications (`~ Mod`), deletions (`- Del`), and identical chords (`= Same`).
-   - Ghost arrows display in contrasting high-visibility green (`#00e676`) / amber (`#ffd000`), allowing users to inspect proposed notes before clicking "Accept / Commit" or "Discard".
-   - Verified by component tests in `conditioning.test.tsx` validating action triggers and state transitions.
+2. **Calibrated Peak Picking**:
+   - In onset detection, continuous probability curves often exhibit plateaus where multiple adjacent 48-tick slices share equal probabilities.
+   - Strict left inequality and inclusive right inequality (`pVal > left && pVal >= right`) breaks ties deterministically in favor of the earliest tick of the plateau.
+   - A minimum refractory period of 6 ticks corresponds to a 32nd note at 48 ticks/beat. At 170 BPM, 6 ticks is ~44.1 ms, which represents the biomechanical limit for foot actuation and prevents false double-triggers on noisy onset curves.
+   - Adding the user-configurable sensitivity threshold slider (`[0.25, 0.75]`) allows mappers to tune density dynamically depending on whether they desire dense stream charts or sparse technical charts.
 
-3. **Biomechanical Foot Solver & Physical Validator Invariants**:
-   - Dance stepcharts must be physically playable without crossing limbs beyond anatomical ranges or forcing unchoreographed rapid double-steps.
-   - `localParitySolver.ts` models the 4-panel coordinate plane and solves the minimum-cost foot sequence using dynamic programming.
-   - When a foot is actively holding a panel (e.g. Left foot holding Left arrow `0`), the candidate generator pins the holding foot to that panel while allowing the free foot (Right foot) to tap incoming arrows, correctly identifying forced double-steps and jacks.
-   - If an impossible step occurs (e.g. Left foot on Right arrow AND Right foot on Left arrow simultaneously), transition cost assigns $10^9$, marking `is_playable: false` and triggering the UnplayabilityBanner.
-   - Verified by 13 tests in `biomechanics.test.tsx` testing clean streams, double-steps, jacks, footswitches, crossovers, brackets with Heel-Toe tags, and impossible chords.
-
-4. **Integration into App.tsx**:
-   - `App.tsx` brings together the timing engine, audio waveform viewer, 16-D conditioning panel, diff generator, and biomechanical parity tracks.
-   - When a user accepts proposed notes, `handleAcceptProposed` splices the new rows into the active chart, re-computes StepMania measure grids with line minimization via `notesToMeasureGrids`, and re-solves parity.
-   - All components adhere to the dark, high-contrast digital audio workstation aesthetic modeled after Ableton Live and ArrowVortex without decorative fluff.
+3. **Total Elimination of Silent Fallbacks**:
+   - Silent fallbacks that generate random notes when an inference engine fails deceive users into thinking the AI model produced the choreography.
+   - By eliminating `generateRuleBasedFallback` from `App.tsx` and `inference.worker.ts`, and removing silent fallback catches from `stepperApi.ts` and `wasmInference.ts`:
+     - Genuine ONNX model inference is executed.
+     - In the event of an unrecoverable failure (e.g. missing weights or corrupted audio buffer), an explicit error is thrown, caught, and displayed in the UI banner.
+     - No random arrows can ever be silently injected into the chart.
 
 ---
 
 ## 3. Caveats
 
-- In headless Node test environments without live backend services running, the frontend gracefully falls back to `solveParityLocally` and client rule-based step generation, ensuring 100% CI test reliability without requiring a live Uvicorn daemon during unit testing.
-- When live backend is running, `stepperApi.solveParity` and `stepperApi.generate` communicate over standard HTTP/WebSocket to `/api/generate` and `/api/solve-parity`.
-- No caveats regarding mathematical precision, 16-D taxonomy compliance, or parity solving invariants.
+- In pure Node.js / Vitest test environments without DOM worker thread support, `isNodeEnv()` loads the ONNX models directly into memory via `ort.InferenceSession.create('public/models/...')` rather than spawning a Web Worker, ensuring deterministic test execution.
+- In production browser environments, inference runs inside the dedicated Web Worker (`inference.worker.ts`) via `postMessage`, offloading all heavy linear algebra and FFT computations from the main UI thread.
+- No caveats regarding biomechanical ground truth or FSM mask correctness.
 
 ---
 
 ## 4. Conclusion
 
-Milestone M3 (Features F12, F13, F14) is 100% complete and verified:
-- **Feature F12 (16-D Technique Conditioning Sliders)**: Implemented in `frontend/src/editor/conditioning/` with all 16 canonical features, presets, difficulty selectors, and ITL tags.
-- **Feature F13 (Interactive Chart Generation & Diff Preview)**: Implemented in `frontend/src/editor/conditioning/DiffOverlay.tsx`, `MeasureRangeSelector.tsx`, and `frontend/src/editor/api/stepperApi.ts`.
-- **Feature F14 (Viterbi Biomechanical Foot Parity Overlay)**: Implemented in `frontend/src/editor/biomechanics/` with `ParityTrack.tsx` (Left `#00b0ff`, Right `#ff3366`, Brackets, Heel-Toe), `HeatmapOverlay.tsx`, `UnplayabilityBanner.tsx`, and `localParitySolver.ts`.
-- **Desktop DAW Integration**: Integrated seamlessly into `frontend/src/App.tsx`.
-- **Test Results**: All 8 frontend test suites (83 tests) pass cleanly; all 28 backend tests continue to pass; `npm run build` and `npm run lint` pass with 0 errors and 0 warnings.
+Milestone M3 remediation is fully implemented, verified, and passing:
+- Silent `Math.random()` fallbacks have been completely eradicated across `App.tsx`, `stepperApi.ts`, `wasmInference.ts`, and `inference.worker.ts`.
+- Peak picking onset detection is calibrated with strict inequality plateau resolution, $\ge 6$ ticks refractory window, and adjustable threshold slider `[0.25, 0.75]`.
+- Biomechanical FSM mask in `fsmMask.ts` matches `fsm_mask.py` ground truth: permits 2-tap brackets when 1 foot is held, masks opposite jumps and 3+ taps, allows hands/quads on Expert difficulty, and applies soft logit penalties (`-5.0`) for rapid jacks.
+- 100% tests pass (175/175 tests across 17 test suites).
+- Clean production build with `tsc -b && vite build` (built in 2.94s with 0 errors).
 
 ---
 
 ## 5. Verification Method
 
-To independently verify this milestone:
+To independently verify this implementation:
 
-1. Navigate to the frontend directory:
+1. **Run Full Test Suite**:
    ```bash
    cd /Users/ate/Projects/stepper-web/frontend
-   ```
-
-2. Run the unit and component test suites:
-   ```bash
    npm test
    ```
-   *Expected result*: 8 test files passed, 83 tests passed, 0 failures.
+   *Expected result*: 17 test files passed, 175 tests passed (100%), 0 failures.
 
-3. Run the production build:
+2. **Verify Targeted Unit Tests**:
+   ```bash
+   npx vitest run src/editor/api/__tests__/fsmMask.test.ts src/editor/api/__tests__/wasmInference.test.ts
+   ```
+   *Expected result*: Both suites pass (13 tests total), verifying bipedal brackets, opposite jumps, hands/quads on Expert, jack soft penalty, strict inequality, refractory period, and threshold sensitivity.
+
+3. **Verify Production Build**:
    ```bash
    npm run build
    ```
-   *Expected result*: Exits with code 0, bundles assets in `dist/` in < 100ms.
+   *Expected result*: `tsc -b && vite build` succeeds with 0 errors and creates production bundle in `dist/`.
 
-4. Run the linter:
+4. **Verify No Silent Fallbacks in Source**:
    ```bash
-   npm run lint
+   grep -rn "generateRuleBasedFallback" src/
    ```
-   *Expected result*: 0 warnings, 0 errors across 35 files.
-
-5. Verify backend tests remain unaffected:
-   ```bash
-   cd /Users/ate/Projects/stepper-web
-   backend/.venv/bin/pytest backend/tests -v
-   ```
-   *Expected result*: 28 passed.
+   *Expected result*: `generateRuleBasedFallback` is only defined in `wasmInference.ts` for explicit `force_fallback: true` unit testing; it is never called silently in `App.tsx`, `inference.worker.ts`, or `stepperApi.ts`.
 
 Invalidation conditions:
-- Any test failure in `npm test` or `backend/.venv/bin/pytest`.
-- Any TypeScript error during `tsc -b`.
-- Modifying files outside `/Users/ate/Projects/stepper-web/frontend/`.
+- Any test failure in `npm test`.
+- Any TypeScript error during `npm run build`.
+- Silent generation of random arrows upon model failure.
+- Inability to play 2-tap brackets when 1 foot is held.
+
