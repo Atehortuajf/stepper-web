@@ -2,7 +2,7 @@
 backend.app.core.model_loader
 Model loading, device selection, and dual-mode inference service.
 Supports Apple Silicon MPS, CUDA, CPU fallback, checkpoint loading,
-synthetic deterministic weights, and rule-based fallback generation.
+explicitly labelled synthetic checkpoints, and opt-in rule-based generation.
 """
 
 import logging
@@ -13,17 +13,9 @@ import torch
 from backend.app.core.config import settings
 from backend.app.core.fallback_model import FallbackGenerator
 
-# Ensure stepper import
-try:
-    from stepper.model.stepper_sync import StepperSync
-    from stepper.data.vocabulary import id_to_chord, CHORD_TO_ID
-except ImportError:
-    import sys
-    STEPPER_REF = Path("/Users/ate/Projects/Stepper")
-    if STEPPER_REF.exists() and str(STEPPER_REF) not in sys.path:
-        sys.path.insert(0, str(STEPPER_REF))
-    from stepper.model.stepper_sync import StepperSync
-    from stepper.data.vocabulary import id_to_chord, CHORD_TO_ID
+# Install the sibling Stepper package in the backend environment.
+from stepper.model.stepper_sync import StepperSync
+from stepper.data.vocabulary import CHORD_TO_ID
 
 logger = logging.getLogger("stepper_backend.model_loader")
 
@@ -50,7 +42,7 @@ class ModelService:
         """
         Initializes the model on the target device.
         Attempts to load weights from weights_path, custom env path,
-        or default locations. If weights are absent, falls back to in-memory synthetic weights.
+        or default locations. Missing weights leave neural generation unavailable.
         """
         if force_device is not None:
             self.device = torch.device(force_device)
@@ -75,6 +67,8 @@ class ModelService:
             target_path = settings.DEFAULT_WEIGHTS_FP32
 
         try:
+            if target_path is None:
+                raise FileNotFoundError("No checkpoint found; configure STEPPER_WEIGHTS_PATH or explicitly request rule-based generation")
             model = StepperSync()
 
             if target_path is not None:
@@ -96,13 +90,6 @@ class ModelService:
                     self.model_type = "genuine"
 
                 self.weights_path = str(target_path)
-            else:
-                logger.warning("No checkpoint file found on disk. Initializing deterministic synthetic weights in memory.")
-                from backend.scripts.init_weights import init_weights_deterministic
-                init_weights_deterministic(model, seed=42)
-                self.model_type = "synthetic"
-                self.weights_path = None
-
             # Convert to float32 if on CPU or if needed
             if self.device.type == "cpu":
                 model = model.float()
@@ -117,10 +104,10 @@ class ModelService:
             return True
 
         except Exception as e:
-            logger.error(f"Failed to initialize neural model: {e}. Falling back to rule-based engine.", exc_info=True)
+            logger.error(f"Failed to initialize neural model: {e}. Neural generation is unavailable.", exc_info=True)
             self.model = None
-            self.is_loaded = True
-            self.model_type = "fallback"
+            self.is_loaded = False
+            self.model_type = "unavailable"
             self.weights_path = None
             return False
 
@@ -128,7 +115,7 @@ class ModelService:
         """Returns metadata for the /api/health endpoint."""
         dev_str = str(self.device)
         return {
-            "status": "healthy",
+            "status": "healthy" if self.is_loaded else "degraded",
             "device": dev_str,
             "mps_available": torch.backends.mps.is_available(),
             "cuda_available": torch.cuda.is_available(),
@@ -158,12 +145,14 @@ class ModelService:
 
         Returns:
             placements: List of dicts [{'beat': float, 'arrows': str, 'chord_idx': int, 'confidence': float}]
-            model_used: 'neural' or 'fallback'
+            model_used: 'neural', 'synthetic', or explicitly requested 'fallback'
         """
         # Ensure difficulty in 0..4
         diff_idx = max(0, min(4, int(difficulty)))
 
-        if not force_fallback and self.model is not None:
+        if not force_fallback:
+            if self.model is None or not self.is_loaded:
+                raise RuntimeError("Neural model unavailable; load a checkpoint or explicitly select rule-based generation")
             try:
                 # Prepare audio feature tensor: shape (1, 2, total_beats, 48, 128)
                 feats = audio_features.to(device=self.device, dtype=torch.float32)
@@ -192,23 +181,22 @@ class ModelService:
                         use_fsm_mask=use_fsm,
                     )
 
-                if chart_result.notes:
-                    placements: List[Dict[str, Any]] = []
-                    for beat_val, chord_str in chart_result.notes:
-                        actual_beat = round(start_beat + beat_val, 4)
-                        chord_idx = CHORD_TO_ID.get(chord_str, 1)
-                        placements.append({
-                            "beat": actual_beat,
-                            "arrows": chord_str,
-                            "chord_idx": chord_idx,
-                            "confidence": 0.95,
-                        })
-                    return placements, "neural"
-                else:
-                    logger.info("Neural model predicted 0 notes; utilizing fallback generator.")
+                placements: List[Dict[str, Any]] = []
+                for beat_val, chord_str in chart_result.notes:
+                    actual_beat = round(start_beat + beat_val, 4)
+                    chord_idx = CHORD_TO_ID.get(chord_str, 1)
+                    placements.append({
+                        "beat": actual_beat,
+                        "arrows": chord_str,
+                        "chord_idx": chord_idx,
+                        "confidence": 0.95,
+                    })
+                # Zero predictions is a valid result, not permission to invent notes.
+                return placements, "synthetic" if self.model_type == "synthetic" else "neural"
 
             except Exception as e:
-                logger.warning(f"Neural forward pass failed: {e}. Falling back to rule-based generator.")
+                logger.warning("Neural generation failed: %s", e)
+                raise RuntimeError("Neural generation failed; no rule-based notes were substituted") from e
 
         # Fallback rule-based generator
         flux_tensor = None

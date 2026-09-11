@@ -80,6 +80,42 @@ def test_decode_pcm_wav_stereo_and_resampling(sample_stereo_wav_bytes: bytes):
     assert abs(len(waveform) - expected_len) < 50
 
 
+def test_decode_integer_stereo_normalizes_before_mixing():
+    """Integer stereo must be scaled as PCM rather than treated as raw float amplitude."""
+    samples = np.full((800, 2), 16384, dtype=np.int16)
+    buffer = io.BytesIO()
+    wavfile.write(buffer, 8000, samples)
+    waveform = decode_pcm_wav(buffer.getvalue(), target_sr=8000)
+    assert waveform.dtype == torch.float32
+    assert waveform.mean().item() == pytest.approx(0.5, abs=1e-6)
+
+
+def test_explicit_tick_times_are_relative_to_audio_slice_origin():
+    extractor = AudioFeatureExtractor()
+    waveform = torch.zeros(44100)
+    t = torch.arange(512, dtype=torch.float32) / 44100
+    waveform[:512] = torch.sin(2 * torch.pi * 1000 * t)
+    tick_times = [2.0 + i / 96.0 for i in range(48)]
+    features = extractor.extract_from_waveform(
+        waveform,
+        total_beats=1,
+        bpm=120,
+        start_beat=4,
+        slice_start_sec=2.0,
+        tick_times_sec=tick_times,
+    )
+    assert features[:, 0, 0].sum().item() > 0
+    # Shared real-DSP parity anchor with the browser extractor test.
+    assert features[0, 0, 0].argmax().item() == 33
+    with pytest.raises(ValueError, match="exactly 48"):
+        extractor.extract_from_waveform(
+            waveform,
+            total_beats=1,
+            slice_start_sec=2.0,
+            tick_times_sec=tick_times[:-1],
+        )
+
+
 def test_decode_pcm_wav_base64(sample_wav_base64: str):
     """Test decoding base64 encoded audio slice."""
     waveform = decode_pcm_wav(sample_wav_base64, target_sr=44100)
@@ -96,12 +132,17 @@ def test_decode_pcm_wav_data_url(sample_wav_base64: str):
     assert len(waveform) > 0
 
 
-def test_extract_features_fallback_on_none():
-    """Verify extract_features_from_audio generates synthetic audio when input is None."""
+def test_extract_features_requires_audio_unless_fallback_is_explicit():
+    with pytest.raises(ValueError, match="audio_input is required"):
+        extract_features_from_audio(audio_input=None, total_beats=8, bpm=130.0)
+    with pytest.raises(ValueError, match="valid PCM WAV"):
+        extract_features_from_audio(audio_input=b"x", total_beats=8, bpm=130.0)
+
     features = extract_features_from_audio(
         audio_input=None,
         total_beats=8,
         bpm=130.0,
+        allow_synthetic=True,
     )
     assert features.shape == (2, 8, 48, 128)
     assert (features[0] >= 0.0).all()

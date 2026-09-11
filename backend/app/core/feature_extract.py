@@ -10,7 +10,7 @@ import base64
 import io
 import math
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 import numpy as np
 import scipy.io.wavfile as wavfile
 import torch
@@ -71,6 +71,8 @@ class AudioFeatureExtractor:
         offset: float = 0.0,
         timing_engine: Optional[object] = None,
         start_beat: float = 0.0,
+        slice_start_sec: float = 0.0,
+        tick_times_sec: Optional[List[float]] = None,
     ) -> torch.Tensor:
         """
         Extract beat-synchronous features from a 1D audio waveform tensor.
@@ -99,7 +101,11 @@ class AudioFeatureExtractor:
         beats = start_beat + (k / float(self.ticks_per_beat))
 
         # 1. Continuous Bresenham Phase Sampling: c_k = round(t_audio * fs)
-        if timing_engine is not None and hasattr(timing_engine, "beat_to_seconds"):
+        if tick_times_sec is not None:
+            if len(tick_times_sec) != total_ticks:
+                raise ValueError(f"tick_times_sec must contain exactly {total_ticks} half-open tick times")
+            t_audio = torch.tensor(tick_times_sec, dtype=torch.float64)
+        elif timing_engine is not None and hasattr(timing_engine, "beat_to_seconds"):
             t_audio_list = [timing_engine.beat_to_seconds(float(b)) for b in beats]
             t_audio = torch.tensor(t_audio_list, dtype=torch.float64)
         else:
@@ -107,7 +113,7 @@ class AudioFeatureExtractor:
                 bpm = 120.0
             t_audio = beats * (60.0 / bpm) - offset
 
-        sample_targets = t_audio * self.sample_rate
+        sample_targets = (t_audio - slice_start_sec) * self.sample_rate
         centers = torch.round(sample_targets).to(torch.long)
 
         # 2. Bounded audio padding for centered STFT windowing
@@ -206,10 +212,6 @@ def decode_pcm_wav(
     if len(raw_bytes) >= 12 and raw_bytes[:4] == b"RIFF" and raw_bytes[8:12] == b"WAVE":
         sr, data = wavfile.read(io.BytesIO(raw_bytes))
 
-        # Handle multichannel (mix to mono)
-        if data.ndim > 1:
-            data = data.mean(axis=1)
-
         # Scale according to bit-depth
         if data.dtype == np.int16:
             data_float = data.astype(np.float32) / 32768.0
@@ -219,6 +221,11 @@ def decode_pcm_wav(
             data_float = (data.astype(np.float32) - 128.0) / 128.0
         else:
             data_float = data.astype(np.float32)
+
+        # Normalize integer PCM before mixing; averaging integer channels first
+        # promotes to float without applying the required bit-depth scale.
+        if data_float.ndim > 1:
+            data_float = data_float.mean(axis=1, dtype=np.float32)
 
         waveform = torch.from_numpy(data_float)
         if sr != target_sr:
@@ -250,6 +257,9 @@ def extract_features_from_audio(
     bpm: float = 120.0,
     offset: float = 0.0,
     start_beat: float = 0.0,
+    slice_start_sec: float = 0.0,
+    tick_times_sec: Optional[List[float]] = None,
+    allow_synthetic: bool = False,
     extractor: Optional[AudioFeatureExtractor] = None,
 ) -> torch.Tensor:
     """
@@ -267,10 +277,14 @@ def extract_features_from_audio(
         elif isinstance(audio_input, (bytes, str)) and len(audio_input) > 0:
             try:
                 waveform = decode_pcm_wav(audio_input, target_sr=extractor.sample_rate)
-            except Exception:
+            except Exception as exc:
+                if not allow_synthetic:
+                    raise ValueError("audio_input must be a valid PCM WAV or raw PCM buffer") from exc
                 waveform = None
 
     if waveform is None or waveform.numel() == 0:
+        if not allow_synthetic:
+            raise ValueError("audio_input is required unless synthetic fallback is explicitly enabled")
         duration_sec = (total_beats * 60.0 / bpm) + 2.0
         waveform = generate_synthetic_audio(duration_sec=duration_sec, bpm=bpm)
 
@@ -280,4 +294,6 @@ def extract_features_from_audio(
         bpm=bpm,
         offset=offset,
         start_beat=start_beat,
+        slice_start_sec=slice_start_sec,
+        tick_times_sec=tick_times_sec,
     )

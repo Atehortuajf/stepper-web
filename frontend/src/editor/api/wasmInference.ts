@@ -6,13 +6,14 @@
  */
 
 import * as ort from 'onnxruntime-web';
-import { clientFeatureExtractor } from '../audio/clientFeatureExtract';
+import { clientFeatureExtractor, resampleMonoWaveform } from '../audio/clientFeatureExtract';
 import {
   CHORD_TO_ID,
   ClientFootStateMachine,
   ID_TO_CHORD,
   VOCAB_SIZE,
 } from './fsmMask';
+import { normalizeDifficulty, pickPlacementPeaks } from './stepperApi';
 import type { GenerateRequest, GenerateResponse, Placement } from './stepperApi';
 
 export type WasmModelStatus = 'unloaded' | 'loading' | 'ready' | 'error';
@@ -259,6 +260,12 @@ export class WasmInferenceEngine {
     onProgress?: (percent: number, stage?: string) => void
   ): Promise<GenerateResponse> {
     const startTime = performance.now();
+    if (req.force_fallback) {
+      return this.generateRuleBasedFallback(req, startTime);
+    }
+    if (!waveform || waveform.length === 0) {
+      throw new Error('A decoded audio waveform is required for neural browser inference');
+    }
 
     // 1. If Web Worker is available and supported, delegate generation off the main thread
     const worker = this.getWorker();
@@ -280,12 +287,10 @@ export class WasmInferenceEngine {
     }
 
     const startBeat = req.start_beat ?? 0.0;
-    const numBeats = Math.max(4.0, req.num_beats ?? 16.0);
+    const numBeats = Math.max(1, Math.round(req.num_beats ?? 16.0));
     const bpm = req.bpm ?? 140.0;
     const offset = req.offset ?? 0.0;
-    const difficultyMeter =
-      typeof req.difficulty === 'number' ? req.difficulty : parseInt(req.difficulty, 10) || 9;
-    const diffIdx = Math.max(0, Math.min(4, Math.floor((difficultyMeter - 1) / 4)));
+    const diffIdx = normalizeDifficulty(req.difficulty);
     const threshold = req.threshold ?? (diffIdx === 0 ? 0.30 : 0.50);
     const temperature = req.temperature ?? 1.0;
     const useFsm = req.use_fsm ?? true;
@@ -293,12 +298,12 @@ export class WasmInferenceEngine {
     // 1. Extract audio features
     onProgress?.(15, 'Extracting audio features');
     await yieldToMain();
-    const monoWaveform =
-      waveform && waveform.length > 0
-        ? waveform
-        : new Float32Array(Math.floor(((numBeats * 60.0) / bpm + 1.0) * 44100));
-    const sliceStartSec = req.start_sec ?? (startBeat * (60.0 / bpm) - offset);
-    const audioFeatures = clientFeatureExtractor.extract(monoWaveform, numBeats, bpm, offset, startBeat, sliceStartSec);
+    const suppliedWaveform = waveform;
+    const monoWaveform = resampleMonoWaveform(suppliedWaveform, req.waveform_sample_rate ?? 44100);
+    const sliceStartSec = req.slice_start_sec ?? req.start_sec ?? (startBeat * (60.0 / bpm) - offset);
+    const audioFeatures = clientFeatureExtractor.extract(
+      monoWaveform, numBeats, bpm, offset, startBeat, sliceStartSec, req.tick_times_sec
+    );
 
     // 2. Run Stage 1 Placement Model
     onProgress?.(35, 'Running PlacementNet ONNX');
@@ -324,29 +329,11 @@ export class WasmInferenceEngine {
     const acousticMapData = pResults.acoustic_map.data as Float32Array;
     const totalTicks = numBeats * 48;
 
-    // 3. Peak Picking & Non-Maximum Suppression (strict inequality & >=6 tick refractory period)
+    // 3. Peak picking: match the backend's 3-tick local maxima and retain dense events.
     onProgress?.(50, 'Peak picking & NMS');
     await yieldToMain();
-    const MIN_REFRACTORY_TICKS = 6;
-
     const pickPeaks = (th: number): number[] => {
-      const ticks: number[] = [];
-      for (let t = 0; t < totalTicks; t++) {
-        const pVal = probsData[t];
-        if (pVal > th) {
-          const left = t > 0 ? probsData[t - 1] : 0.0;
-          const right = t < totalTicks - 1 ? probsData[t + 1] : 0.0;
-          if (pVal > left && pVal >= right) {
-            if (
-              ticks.length === 0 ||
-              t - ticks[ticks.length - 1] >= MIN_REFRACTORY_TICKS
-            ) {
-              ticks.push(t);
-            }
-          }
-        }
-      }
-      return ticks;
+      return pickPlacementPeaks(probsData.subarray(0, totalTicks), th);
     };
 
     let placedTicks = pickPeaks(threshold);
@@ -536,10 +523,10 @@ export class WasmInferenceEngine {
     startTime: number
   ): GenerateResponse {
     const startBeat = req.start_beat ?? 0.0;
-    const numBeats = Math.max(4.0, req.num_beats ?? 16.0);
+    const numBeats = Math.max(1, Math.round(req.num_beats ?? 16.0));
     const difficultyMeter =
       typeof req.difficulty === 'number' ? req.difficulty : parseInt(req.difficulty, 10) || 9;
-    const diffIdx = Math.max(0, Math.min(4, Math.floor((difficultyMeter - 1) / 4)));
+    const diffIdx = normalizeDifficulty(req.difficulty);
     const zTech = req.tech_vector || new Array(16).fill(0);
 
     const stepInterval = difficultyMeter >= 11 ? 0.25 : difficultyMeter >= 6 ? 0.5 : 1.0;

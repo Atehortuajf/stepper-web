@@ -5,14 +5,8 @@ Core configuration and environment settings.
 
 import os
 from pathlib import Path
-import sys
 from typing import Optional
 import torch
-
-# Ensure reference Stepper project is accessible if present on the host
-STEPPER_REF_PATH = Path("/Users/ate/Projects/Stepper")
-if STEPPER_REF_PATH.exists() and str(STEPPER_REF_PATH) not in sys.path:
-    sys.path.insert(0, str(STEPPER_REF_PATH))
 
 # Base paths
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
@@ -25,7 +19,7 @@ class Settings:
     API_V1_STR: str = "/api"
 
     # Server options
-    HOST: str = os.getenv("STEPPER_HOST", "0.0.0.0")
+    HOST: str = os.getenv("STEPPER_HOST", "127.0.0.1")
     PORT: int = int(os.getenv("STEPPER_PORT", "8000"))
 
     # Audio feature extraction parameters

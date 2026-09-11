@@ -35,8 +35,8 @@ export class ClientAudioFeatureExtractor {
     this.sampleRate = config?.sampleRate ?? 44100;
     this.nFft = config?.nFft ?? 1024;
     this.nMels = config?.nMels ?? 128;
-    this.fMin = config?.fMin ?? 0.0;
-    this.fMax = config?.fMax ?? this.sampleRate / 2.0;
+    this.fMin = config?.fMin ?? 20.0;
+    this.fMax = config?.fMax ?? 16000.0;
     this.ticksPerBeat = config?.ticksPerBeat ?? 48;
     this.compressionFactor = config?.compressionFactor ?? 10000.0;
 
@@ -205,11 +205,18 @@ export class ClientAudioFeatureExtractor {
     bpm: number = 140.0,
     offset: number = 0.0,
     startBeat: number = 0.0,
-    sliceStartSec: number = 0.0
+    sliceStartSec: number = 0.0,
+    tickTimesSec?: readonly number[]
   ): Float32Array {
     if (bpm <= 0) bpm = 120.0;
 
     const totalTicks = totalBeats * this.ticksPerBeat;
+    if (!Number.isInteger(totalTicks)) {
+      throw new Error('totalBeats must produce an integer number of 1/48-beat ticks');
+    }
+    if (tickTimesSec && tickTimesSec.length !== totalTicks) {
+      throw new Error(`tick_times_sec must contain exactly ${totalTicks} half-open tick times`);
+    }
     const nFreqs = this.nFft / 2 + 1; // 513
     const halfWin = this.nFft / 2; // 512
 
@@ -229,7 +236,7 @@ export class ClientAudioFeatureExtractor {
     // Process each tick
     for (let t = 0; t < totalTicks; t++) {
       const beat = startBeat + t / this.ticksPerBeat;
-      const tAudio = beat * (60.0 / bpm) - offset;
+      const tAudio = tickTimesSec ? tickTimesSec[t] : beat * (60.0 / bpm) - offset;
       const center = Math.round((tAudio - sliceStartSec) * this.sampleRate);
 
       // Windowing with zero-padding boundary conditions
@@ -277,6 +284,29 @@ export class ClientAudioFeatureExtractor {
 
     return result;
   }
+}
+
+/** Deterministic mono linear resampling used before the fixed 44.1 kHz model front end. */
+export function resampleMonoWaveform(
+  waveform: Float32Array,
+  sourceSampleRate: number,
+  targetSampleRate = 44100
+): Float32Array {
+  if (!(sourceSampleRate > 0) || !(targetSampleRate > 0)) {
+    throw new Error('Waveform sample rates must be positive');
+  }
+  if (sourceSampleRate === targetSampleRate || waveform.length === 0) return waveform;
+  const outputLength = Math.max(1, Math.round(waveform.length * targetSampleRate / sourceSampleRate));
+  const output = new Float32Array(outputLength);
+  const ratio = sourceSampleRate / targetSampleRate;
+  for (let i = 0; i < outputLength; i++) {
+    const position = i * ratio;
+    const left = Math.min(waveform.length - 1, Math.floor(position));
+    const right = Math.min(waveform.length - 1, left + 1);
+    const fraction = position - left;
+    output[i] = waveform[left] + (waveform[right] - waveform[left]) * fraction;
+  }
+  return output;
 }
 
 /**

@@ -194,6 +194,7 @@ describe('Milestones M6 & M7: Empirical Challenge Test Suite', () => {
           num_beats: 16.0,
           bpm: 140.0,
           tech_vector: new Array(16).fill(0),
+          force_fallback: true,
         };
 
         const res = await wasmInferenceEngine.generate(req);
@@ -242,6 +243,7 @@ describe('Milestones M6 & M7: Empirical Challenge Test Suite', () => {
         start_beat: 0.0,
         num_beats: 8.0,
         bpm: 160.0,
+        force_fallback: true,
       };
 
       const res = await wasmInferenceEngine.generate(req, undefined, (pct, stage) => {
@@ -259,12 +261,11 @@ describe('Milestones M6 & M7: Empirical Challenge Test Suite', () => {
 
     it('handles adversarial audio input (0-sample buffer, 500k samples, negative offset, extreme BPM)', async () => {
       // 1. 0-sample buffer
-      const res0 = await wasmInferenceEngine.generate({
+      await expect(wasmInferenceEngine.generate({
         difficulty: 7,
         num_beats: 4.0,
         bpm: 120.0,
-      }, new Float32Array(0));
-      expect(res0.placements.length).toBeGreaterThan(0);
+      }, new Float32Array(0))).rejects.toThrow('decoded audio waveform is required');
 
       // 2. Large waveform (500,000 samples ~ 11.3s @ 44.1kHz)
       const bigWaveform = new Float32Array(500000);
@@ -276,12 +277,13 @@ describe('Milestones M6 & M7: Empirical Challenge Test Suite', () => {
         num_beats: 8.0,
         bpm: 150.0,
         offset: -0.05,
+        force_fallback: true,
       }, bigWaveform);
       expect(resBig.placements.length).toBeGreaterThan(0);
 
       // 3. Extreme BPMs: 40 BPM and 400 BPM
-      const resSlow = await wasmInferenceEngine.generate({ difficulty: 5, num_beats: 4.0, bpm: 40.0 });
-      const resFast = await wasmInferenceEngine.generate({ difficulty: 15, num_beats: 16.0, bpm: 400.0 });
+      const resSlow = await wasmInferenceEngine.generate({ difficulty: 5, num_beats: 4.0, bpm: 40.0, force_fallback: true });
+      const resFast = await wasmInferenceEngine.generate({ difficulty: 15, num_beats: 16.0, bpm: 400.0, force_fallback: true });
       expect(resSlow.placements.length).toBeGreaterThan(0);
       expect(resFast.placements.length).toBeGreaterThan(0);
     });

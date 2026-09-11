@@ -15,11 +15,50 @@ export interface GenerateRequest {
   num_beats?: number;
   bpm?: number;
   offset?: number;
+  /** Sample rate of the separately supplied browser waveform. */
+  waveform_sample_rate?: number;
+  /** Absolute song time represented by waveform sample zero. */
+  slice_start_sec?: number;
+  /** Absolute song times for each half-open 1/48-beat feature tick. */
+  tick_times_sec?: number[];
+  /** @deprecated Alias retained for existing callers. */
   start_sec?: number;
   threshold?: number;
   temperature?: number;
   use_fsm?: boolean;
   force_fallback?: boolean;
+}
+
+export function normalizeDifficulty(difficulty: number | string): number {
+  if (typeof difficulty === 'string') {
+    const names: Record<string, number> = {
+      novice: 0, beginner: 0, easy: 1, basic: 1, medium: 2,
+      difficult: 3, hard: 3, expert: 4, challenge: 4, edit: 4,
+    };
+    const cleaned = difficulty.trim().toLowerCase();
+    if (cleaned in names) return names[cleaned];
+    const parsed = Number.parseInt(cleaned, 10);
+    return Number.isFinite(parsed) ? normalizeDifficulty(parsed) : 3;
+  }
+  const meter = Math.trunc(difficulty);
+  if (meter <= 4) return Math.max(0, meter);
+  if (meter <= 6) return 1;
+  if (meter <= 8) return 2;
+  if (meter <= 11) return 3;
+  return 4;
+}
+
+/** Match the backend model's 3-tick local-maximum rule without a refractory window. */
+export function pickPlacementPeaks(probabilities: ArrayLike<number>, threshold: number): number[] {
+  const ticks: number[] = [];
+  for (let tick = 0; tick < probabilities.length; tick++) {
+    const value = probabilities[tick];
+    if (value <= threshold) continue;
+    const left = tick > 0 ? probabilities[tick - 1] : 0;
+    const right = tick + 1 < probabilities.length ? probabilities[tick + 1] : 0;
+    if (value >= left && value >= right) ticks.push(tick);
+  }
+  return ticks;
 }
 
 export interface Placement {
@@ -241,6 +280,8 @@ export class StepperApiClient {
       num_beats: req.num_beats ?? 16.0,
       bpm: req.bpm ?? 140.0,
       offset: req.offset ?? 0.0,
+      slice_start_sec: req.slice_start_sec ?? req.start_sec ?? null,
+      tick_times_sec: req.tick_times_sec ?? null,
       threshold: req.threshold ?? 0.5,
       temperature: req.temperature ?? 1.0,
       use_fsm: req.use_fsm ?? true,

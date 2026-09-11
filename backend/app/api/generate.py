@@ -1,7 +1,7 @@
 """
 backend.app.api.generate
 REST and WebSocket chart generation endpoints.
-POST /api/generate - Fast AI inference (<1.5s 16-beat chunk)
+POST /api/generate - Audio-conditioned inference or explicit rule-based mode
 WS /api/ws/generate - Real-time streaming generation for interactive scrubbing
 """
 
@@ -84,7 +84,7 @@ async def generate_chart(request: GenerateRequest) -> GenerateResponse:
     """
     Fast AI / rule-based chart generation endpoint.
     Accepts audio slice, difficulty, and 16-D continuous technique vector z_tech.
-    Guarantees latency < 1.5s for a 16-beat chunk.
+    Reports observed latency; no hardware-independent bound is implied.
     """
     start_time = time.perf_counter()
 
@@ -92,28 +92,37 @@ async def generate_chart(request: GenerateRequest) -> GenerateResponse:
     total_beats = int(max(1, round(request.num_beats)))
 
     # Extract audio features (2, total_beats, 48, 128)
-    feats = extract_features_from_audio(
-        audio_input=request.audio_slice,
-        total_beats=total_beats,
-        bpm=request.bpm,
-        offset=request.offset,
-        start_beat=request.start_beat,
-    )
+    try:
+        feats = extract_features_from_audio(
+            audio_input=request.audio_slice,
+            total_beats=total_beats,
+            bpm=request.bpm,
+            offset=request.offset,
+            start_beat=request.start_beat,
+            slice_start_sec=request.slice_start_sec or 0.0,
+            tick_times_sec=request.tick_times_sec,
+            allow_synthetic=request.force_fallback,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     # Run inference
-    placements_data, model_used = model_service.generate(
-        audio_features=feats,
-        difficulty=diff_id,
-        tech_vector=request.tech_vector,
-        bpm=request.bpm,
-        offset=request.offset,
-        start_beat=request.start_beat,
-        num_beats=float(total_beats),
-        threshold=request.threshold or settings.DEFAULT_THRESHOLD,
-        temperature=request.temperature or settings.DEFAULT_TEMPERATURE,
-        use_fsm=request.use_fsm,
-        force_fallback=request.force_fallback,
-    )
+    try:
+        placements_data, model_used = model_service.generate(
+            audio_features=feats,
+            difficulty=diff_id,
+            tech_vector=request.tech_vector,
+            bpm=request.bpm,
+            offset=request.offset,
+            start_beat=request.start_beat,
+            num_beats=float(total_beats),
+            threshold=request.threshold if request.threshold is not None else settings.DEFAULT_THRESHOLD,
+            temperature=request.temperature if request.temperature is not None else settings.DEFAULT_TEMPERATURE,
+            use_fsm=request.use_fsm,
+            force_fallback=request.force_fallback,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 
@@ -179,13 +188,22 @@ async def websocket_generate(websocket: WebSocket) -> None:
                 ).model_dump()
             )
 
-            feats = extract_features_from_audio(
-                audio_input=req.audio_slice,
-                total_beats=total_beats,
-                bpm=req.bpm,
-                offset=req.offset,
-                start_beat=req.start_beat,
-            )
+            try:
+                feats = extract_features_from_audio(
+                    audio_input=req.audio_slice,
+                    total_beats=total_beats,
+                    bpm=req.bpm,
+                    offset=req.offset,
+                    start_beat=req.start_beat,
+                    slice_start_sec=req.slice_start_sec or 0.0,
+                    tick_times_sec=req.tick_times_sec,
+                    allow_synthetic=req.force_fallback,
+                )
+            except ValueError as exc:
+                await websocket.send_json(
+                    WSGenerateResponse(type="error", message=str(exc)).model_dump()
+                )
+                continue
 
             await websocket.send_json(
                 WSGenerateResponse(
@@ -196,19 +214,25 @@ async def websocket_generate(websocket: WebSocket) -> None:
             )
 
             # Generate notes
-            placements_data, model_used = model_service.generate(
-                audio_features=feats,
-                difficulty=diff_id,
-                tech_vector=req.tech_vector,
-                bpm=req.bpm,
-                offset=req.offset,
-                start_beat=req.start_beat,
-                num_beats=float(total_beats),
-                threshold=req.threshold or settings.DEFAULT_THRESHOLD,
-                temperature=req.temperature or settings.DEFAULT_TEMPERATURE,
-                use_fsm=req.use_fsm,
-                force_fallback=req.force_fallback,
-            )
+            try:
+                placements_data, model_used = model_service.generate(
+                    audio_features=feats,
+                    difficulty=diff_id,
+                    tech_vector=req.tech_vector,
+                    bpm=req.bpm,
+                    offset=req.offset,
+                    start_beat=req.start_beat,
+                    num_beats=float(total_beats),
+                    threshold=req.threshold if req.threshold is not None else settings.DEFAULT_THRESHOLD,
+                    temperature=req.temperature if req.temperature is not None else settings.DEFAULT_TEMPERATURE,
+                    use_fsm=req.use_fsm,
+                    force_fallback=req.force_fallback,
+                )
+            except RuntimeError as exc:
+                await websocket.send_json(
+                    WSGenerateResponse(type="error", message=str(exc)).model_dump()
+                )
+                continue
 
             # Stream back in chunks (e.g. measure-by-measure)
             cur_chunk_start = req.start_beat

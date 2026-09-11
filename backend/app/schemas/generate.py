@@ -8,10 +8,10 @@ from pydantic import BaseModel, Field
 
 
 class GenerateRequest(BaseModel):
-    # Audio input: base64 encoded PCM WAV, raw float32 array, or None (triggers synthetic audio fallback)
+    # Audio input: base64 encoded PCM WAV, raw float32 array, or None (only allowed with explicit force_fallback)
     audio_slice: Optional[str] = Field(
         None,
-        description="Base64 encoded PCM WAV audio buffer or raw PCM data. If omitted, uses synthetic click-track.",
+        description="Base64 encoded PCM WAV audio buffer or raw PCM data. Required for neural generation; omit only with explicit rule-based fallback.",
     )
     # Difficulty: integer (0-4: Novice, Easy, Medium, Hard, Expert; or 1-25+ ITG meter) or string
     difficulty: Union[int, str] = Field(
@@ -27,6 +27,12 @@ class GenerateRequest(BaseModel):
     num_beats: float = Field(16.0, gt=0.0, le=512.0, description="Number of beats to generate (e.g. 16 for 4 measures)")
     bpm: float = Field(140.0, gt=0.0, description="Tempo in beats per minute")
     offset: float = Field(0.0, description="Audio offset in seconds")
+    slice_start_sec: Optional[float] = Field(
+        None, description="Absolute song time represented by the first sample of audio_slice"
+    )
+    tick_times_sec: Optional[List[float]] = Field(
+        None, description="Absolute song time for every half-open 1/48-beat feature tick"
+    )
     threshold: Optional[float] = Field(
         0.5,
         ge=0.0,
@@ -41,7 +47,7 @@ class GenerateRequest(BaseModel):
     )
     use_fsm: bool = Field(
         True,
-        description="Whether to enforce physical playability via Foot State Machine logit masking",
+        description="Whether to apply symbolic Foot State Machine logit masking",
     )
     force_fallback: bool = Field(
         False,
@@ -61,7 +67,7 @@ class GenerateResponse(BaseModel):
     latency_ms: float = Field(..., description="Total inference latency in milliseconds")
     difficulty_id: int = Field(..., description="Standardized difficulty index (0-4)")
     difficulty_str: str = Field(..., description="Human-readable difficulty tier name")
-    model_used: str = Field(..., description="'neural' or 'fallback'")
+    model_used: str = Field(..., description="'neural', explicitly labelled 'synthetic', or opt-in 'fallback'")
 
 
 class WSGenerateMessage(BaseModel):

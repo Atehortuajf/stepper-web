@@ -6,7 +6,8 @@
  */
 
 import * as ort from 'onnxruntime-web';
-import { ClientAudioFeatureExtractor } from '../audio/clientFeatureExtract';
+import { ClientAudioFeatureExtractor, resampleMonoWaveform } from '../audio/clientFeatureExtract';
+import { normalizeDifficulty, pickPlacementPeaks } from '../api/stepperApi';
 import {
   ClientFootStateMachine,
   ID_TO_CHORD,
@@ -91,25 +92,25 @@ async function runGeneration(
   startTime: number
 ): Promise<void> {
   const startBeat = req.start_beat ?? 0.0;
-  const numBeats = Math.max(4.0, req.num_beats ?? 16.0);
+  const numBeats = Math.max(1, Math.round(req.num_beats ?? 16.0));
   const bpm = req.bpm ?? 140.0;
   const offset = req.offset ?? 0.0;
-  const difficultyMeter =
-    typeof req.difficulty === 'number' ? req.difficulty : parseInt(req.difficulty, 10) || 9;
-  const diffIdx = Math.max(0, Math.min(4, Math.floor((difficultyMeter - 1) / 4)));
+  const diffIdx = normalizeDifficulty(req.difficulty);
   const threshold = req.threshold ?? 0.5;
   const temperature = req.temperature ?? 1.0;
   const useFsm = req.use_fsm ?? true;
 
   // 1. Audio feature extraction (Phase-accumulated Slaney Log-Mel + Spectral Flux)
   self.postMessage({ type: 'progress', id, percent: 15, stage: 'Extracting audio features' });
-  const monoWaveform =
-    waveform && waveform.length > 0
-      ? waveform
-      : new Float32Array(Math.floor(((numBeats * 60.0) / bpm + 1.0) * 44100));
-
-  const sliceStartSec = req.start_sec ?? (startBeat * (60.0 / bpm) - offset);
-  const audioFeatures = featureExtractor!.extract(monoWaveform, numBeats, bpm, offset, startBeat, sliceStartSec);
+  if (!waveform || waveform.length === 0) {
+    throw new Error('A decoded audio waveform is required for neural browser inference');
+  }
+  const suppliedWaveform = waveform;
+  const monoWaveform = resampleMonoWaveform(suppliedWaveform, req.waveform_sample_rate ?? 44100);
+  const sliceStartSec = req.slice_start_sec ?? req.start_sec ?? (startBeat * (60.0 / bpm) - offset);
+  const audioFeatures = featureExtractor!.extract(
+    monoWaveform, numBeats, bpm, offset, startBeat, sliceStartSec, req.tick_times_sec
+  );
 
   // 2. Stage 1 PlacementNet
   self.postMessage({ type: 'progress', id, percent: 35, stage: 'Running PlacementNet ONNX' });
@@ -134,28 +135,10 @@ async function runGeneration(
   const acousticMapData = pResults.acoustic_map.data as Float32Array; // [1, totalTicks, 256]
   const totalTicks = numBeats * 48;
 
-  // 3. Peak picking & non-maximum suppression (strict inequality & >=6 tick refractory period)
+  // 3. Peak picking: match the backend's 3-tick local maxima and retain dense events.
   self.postMessage({ type: 'progress', id, percent: 50, stage: 'Peak picking & NMS' });
-  const MIN_REFRACTORY_TICKS = 6;
-
   const pickPeaks = (th: number): number[] => {
-    const ticks: number[] = [];
-    for (let t = 0; t < totalTicks; t++) {
-      const pVal = probsData[t];
-      if (pVal > th) {
-        const left = t > 0 ? probsData[t - 1] : 0.0;
-        const right = t < totalTicks - 1 ? probsData[t + 1] : 0.0;
-        if (pVal > left && pVal >= right) {
-          if (
-            ticks.length === 0 ||
-            t - ticks[ticks.length - 1] >= MIN_REFRACTORY_TICKS
-          ) {
-            ticks.push(t);
-          }
-        }
-      }
-    }
-    return ticks;
+    return pickPlacementPeaks(probsData.subarray(0, totalTicks), th);
   };
 
   let placedTicks = pickPeaks(threshold);
