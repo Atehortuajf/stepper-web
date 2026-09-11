@@ -114,6 +114,26 @@ export function App() {
   const [activeKeys, setActiveKeys] = useState<Set<number>>(new Set());
 
   // Responsive & Modal state
+  const [masterVolume, setMasterVolume] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('stepper_volume');
+      return saved !== null ? parseFloat(saved) : 0.7;
+    } catch {
+      return 0.7;
+    }
+  });
+
+  const handleVolumeChange = useCallback(
+    (vol: number) => {
+      setMasterVolume(vol);
+      audioEngine.setVolume(vol);
+      try {
+        localStorage.setItem('stepper_volume', String(vol));
+      } catch {}
+    },
+    [audioEngine]
+  );
+
   const [isMobileMode, setIsMobileMode] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       return window.innerWidth <= 768;
@@ -218,11 +238,12 @@ export function App() {
     return unsub;
   }, [audioEngine]);
 
-  // Initial synthetic audio, backend health check, and WASM preloading
+  // Initial synthetic audio, volume initialization, backend health check, and WASM preloading
   useEffect(() => {
+    audioEngine.setVolume(masterVolume);
+
     if (!audioEngine.audioBuffer) {
-      const initialBpm = timingEngine.initialBpm || 140;
-      audioEngine.generateSyntheticTrack(initialBpm, 45);
+      audioEngine.generateSyntheticTrack(140, 45);
     }
 
     // Initialize in 'wasm' mode directly for 100% offline-first operation
@@ -253,11 +274,14 @@ export function App() {
         setBackendStatus('Local Mode');
         setBackendDevice('Client Engine');
       });
+  }, [audioEngine]);
 
+  // Dedicated AudioEngine disposal on unmount only
+  useEffect(() => {
     return () => {
       audioEngine.dispose();
     };
-  }, [audioEngine, timingEngine.initialBpm]);
+  }, [audioEngine]);
 
   // Re-solve biomechanical foot parity whenever active chart notes change
   useEffect(() => {
@@ -781,6 +805,8 @@ export function App() {
           start_beat: startBeat,
           num_beats: numBeats,
           bpm,
+          offset: timingEngine.offset,
+          start_sec: timingEngine.beatToSeconds(startBeat),
           threshold: 0.5,
         },
         waveformSlice,
@@ -875,13 +901,22 @@ export function App() {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
+    let loadedSimfile = false;
+    let loadedAudio = false;
+    let audioFileName = '';
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const name = file.name.toLowerCase();
 
       if (name.endsWith('.sm') || name.endsWith('.ssc')) {
-        const text = await file.text();
-        handleLoadSimfileText(text, file.name);
+        try {
+          const text = await file.text();
+          handleLoadSimfileText(text, file.name);
+          loadedSimfile = true;
+        } catch (err) {
+          console.error('Failed to parse simfile:', err);
+        }
       } else if (
         name.endsWith('.mp3') ||
         name.endsWith('.ogg') ||
@@ -889,10 +924,75 @@ export function App() {
         name.endsWith('.flac') ||
         name.endsWith('.m4a')
       ) {
-        const arrayBuffer = await file.arrayBuffer();
-        await audioEngine.loadAudioFromBuffer(arrayBuffer);
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          await audioEngine.loadAudioFromBuffer(arrayBuffer);
+          loadedAudio = true;
+          audioFileName = file.name;
+        } catch (err) {
+          console.error('Failed to decode audio file:', err);
+        }
       }
     }
+
+    // Audio-only onboarding: when an audio file is uploaded without an accompanying .sm/.ssc
+    if (loadedAudio && !loadedSimfile) {
+      const cleanTitle = audioFileName.replace(/\.[^/.]+$/, '');
+      const isDefaultSample = simfile.title === 'MAX 300' && simfile.artist === 'Omega';
+
+      const baseChart: Chart = {
+        stepsType: 'dance-single',
+        description: 'AI Draft',
+        difficulty: 'Challenge',
+        meter: 12,
+        notes: [],
+        noteRows: [],
+        holds: [],
+      };
+
+      const targetBpm = isDefaultSample ? 140.0 : timingEngine.initialBpm;
+
+      setSimfile({
+        version: 0.83,
+        fileType: 'ssc',
+        title: cleanTitle,
+        subtitle: '',
+        artist: 'Unknown Artist',
+        titleTranslit: '',
+        subtitleTranslit: '',
+        artistTranslit: '',
+        genre: '',
+        credit: 'Stepper AI',
+        banner: '',
+        background: '',
+        lyricsPath: '',
+        cdTitle: '',
+        music: audioFileName,
+        sampleStart: 0,
+        sampleLength: 12,
+        selectable: 'YES',
+        displayBpm: '',
+        timing: {
+          offset: 0.0,
+          bpms: [{ beat: 0, bpm: targetBpm }],
+          stops: [],
+          delays: [],
+          warps: [],
+          timeSignatures: [{ beat: 0, numerator: 4, denominator: 4 }],
+        },
+        charts: [baseChart],
+        metadata: {},
+      });
+
+      setActiveChartIndex(0);
+      setProposedPlacements(null);
+      setCurrentPlaybackTime(0);
+      audioEngine.seek(0);
+    } else if (loadedSimfile || loadedAudio) {
+      setCurrentPlaybackTime(0);
+      audioEngine.seek(0);
+    }
+
     setFileInputKey((k) => k + 1);
   };
 
@@ -969,6 +1069,8 @@ export function App() {
         onOpenFileUpload={() => document.getElementById('fileInput')?.click()}
         onExportSSC={handleExportSSC}
         onExportSM={handleExportSM}
+        volume={masterVolume}
+        onVolumeChange={handleVolumeChange}
         onToggleMobileMode={() => setIsMobileMode(!isMobileMode)}
       />
 

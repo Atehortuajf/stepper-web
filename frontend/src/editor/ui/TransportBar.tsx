@@ -31,6 +31,8 @@ export interface TransportBarProps {
   isMobileMode: boolean;
   onTogglePlay: () => void;
   onCycleSnap: (direction: 'finer' | 'coarser') => void;
+  volume?: number;
+  onVolumeChange?: (vol: number) => void;
   onOpenTimingDialog: () => void;
   onOpenFileUpload: () => void;
   onExportSSC: () => void;
@@ -68,6 +70,8 @@ export const TransportBar: React.FC<TransportBarProps> = ({
   isMobileMode,
   onTogglePlay,
   onCycleSnap,
+  volume = 0.7,
+  onVolumeChange,
   onOpenTimingDialog,
   onOpenFileUpload,
   onExportSSC,
@@ -191,6 +195,33 @@ export const TransportBar: React.FC<TransportBarProps> = ({
 
       {/* Right Section: Actions & Mobile Switcher */}
       <div className="flex items-center gap-1.5 shrink-0">
+        {/* Master Volume Slider */}
+        <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#1F2434] border border-[#363C52] text-[#8A92A6]">
+          <button
+            type="button"
+            onClick={() => onVolumeChange?.(volume === 0 ? 0.7 : 0)}
+            className="hover:text-white transition-colors text-xs cursor-pointer"
+            title={volume === 0 ? 'Unmute' : 'Mute'}
+            data-testid="btn-mute"
+          >
+            {volume === 0 ? '🔇' : volume < 0.4 ? '🔈' : '🔊'}
+          </button>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={volume}
+            onChange={(e) => onVolumeChange?.(parseFloat(e.target.value))}
+            className="w-14 md:w-18 h-1.5 accent-[#00E5FF] bg-[#12141D] rounded cursor-pointer"
+            title={`Master Volume: ${Math.round(volume * 100)}%`}
+            data-testid="volume-slider"
+          />
+          <span className="text-[10px] w-6 text-right font-mono text-[#C0C4D6]">
+            {Math.round(volume * 100)}%
+          </span>
+        </div>
+
         {/* AI Inference Engine Mode Selector */}
         <button
           type="button"

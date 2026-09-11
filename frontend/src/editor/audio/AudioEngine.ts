@@ -70,15 +70,18 @@ export class AudioEngine {
   private stateListeners = new Set<(isPlaying: boolean) => void>();
   private animFrameId: number | null = null;
 
+  private volume = 0.7;
+
   constructor() {
     // AudioContext lazily initialized to conform to browser autoplay policies
   }
 
   private getAudioContext(): AudioContext {
-    if (!this.ctx) {
+    if (!this.ctx || this.ctx.state === 'closed') {
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AudioCtx();
       this.gainNode = this.ctx.createGain();
+      this.gainNode.gain.value = this.volume;
       this.gainNode.connect(this.ctx.destination);
     }
     if (this.ctx.state === 'suspended') {
@@ -487,9 +490,17 @@ export class AudioEngine {
    * Sets volume level between 0.0 and 1.0.
    */
   public setVolume(vol: number): void {
+    this.volume = Math.max(0.0, Math.min(1.0, vol));
     if (this.gainNode) {
-      this.gainNode.gain.value = Math.max(0.0, Math.min(1.0, vol));
+      this.gainNode.gain.value = this.volume;
     }
+  }
+
+  /**
+   * Returns current master volume level (0.0 to 1.0).
+   */
+  public getVolume(): number {
+    return this.volume;
   }
 
   /**
@@ -594,5 +605,7 @@ export class AudioEngine {
     if (this.ctx && this.ctx.state !== 'closed') {
       this.ctx.close().catch(() => {});
     }
+    this.ctx = null;
+    this.gainNode = null;
   }
 }

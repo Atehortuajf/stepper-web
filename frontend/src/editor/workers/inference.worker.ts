@@ -159,7 +159,8 @@ async function runGeneration(
       ? waveform
       : new Float32Array(Math.floor(((numBeats * 60.0) / bpm + 1.0) * 44100));
 
-  const audioFeatures = featureExtractor!.extract(monoWaveform, numBeats, bpm, offset, startBeat);
+  const sliceStartSec = req.start_sec ?? (startBeat * (60.0 / bpm) - offset);
+  const audioFeatures = featureExtractor!.extract(monoWaveform, numBeats, bpm, offset, startBeat, sliceStartSec);
 
   // 2. Stage 1 PlacementNet
   self.postMessage({ type: 'progress', id, percent: 35, stage: 'Running PlacementNet ONNX' });

@@ -204,7 +204,8 @@ export class ClientAudioFeatureExtractor {
     totalBeats: number,
     bpm: number = 140.0,
     offset: number = 0.0,
-    startBeat: number = 0.0
+    startBeat: number = 0.0,
+    sliceStartSec: number = 0.0
   ): Float32Array {
     if (bpm <= 0) bpm = 120.0;
 
@@ -229,7 +230,7 @@ export class ClientAudioFeatureExtractor {
     for (let t = 0; t < totalTicks; t++) {
       const beat = startBeat + t / this.ticksPerBeat;
       const tAudio = beat * (60.0 / bpm) - offset;
-      const center = Math.round(tAudio * this.sampleRate);
+      const center = Math.round((tAudio - sliceStartSec) * this.sampleRate);
 
       // Windowing with zero-padding boundary conditions
       for (let n = 0; n < this.nFft; n++) {

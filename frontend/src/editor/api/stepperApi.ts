@@ -15,6 +15,7 @@ export interface GenerateRequest {
   num_beats?: number;
   bpm?: number;
   offset?: number;
+  start_sec?: number;
   threshold?: number;
   temperature?: number;
   use_fsm?: boolean;

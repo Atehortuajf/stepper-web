@@ -57,10 +57,11 @@ export class WasmInferenceEngine {
   private configureOrtEnvironment(): void {
     if (typeof window === 'undefined') return;
 
-    // Configure WASM paths relative to base URL
-    const baseUrl = import.meta.env.BASE_URL || './';
-    const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
-    ort.env.wasm.wasmPaths = `${cleanBase}wasm/`;
+    // Configure WASM paths relative to absolute base URL
+    const cleanBase = typeof window !== 'undefined'
+      ? new URL(import.meta.env.BASE_URL || './', window.location.href).href
+      : './';
+    ort.env.wasm.wasmPaths = cleanBase.endsWith('/') ? `${cleanBase}wasm/` : `${cleanBase}/wasm/`;
     const isIsolated = typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated;
     ort.env.wasm.numThreads = isIsolated
       ? Math.min(4, Math.max(1, navigator.hardwareConcurrency || 2))
@@ -156,7 +157,9 @@ export class WasmInferenceEngine {
               }
             };
             worker.addEventListener('message', listener);
-            const baseUrl = import.meta.env.BASE_URL || './';
+            const baseUrl = typeof window !== 'undefined'
+              ? new URL(import.meta.env.BASE_URL || './', window.location.href).href
+              : import.meta.env.BASE_URL || './';
             worker.postMessage({ type: 'init', baseUrl });
           });
 
@@ -174,10 +177,15 @@ export class WasmInferenceEngine {
 
       // 2. Fallback: Initialize on main thread
       try {
-        const baseUrl = import.meta.env.BASE_URL || './';
-        const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
-        const placementUrl = `${cleanBase}models/stepper_placement.onnx`;
-        const decoderUrl = `${cleanBase}models/stepper_decoder.onnx`;
+        const cleanBase = typeof window !== 'undefined'
+          ? new URL(import.meta.env.BASE_URL || './', window.location.href).href
+          : './';
+        const placementUrl = cleanBase.endsWith('/')
+          ? `${cleanBase}models/stepper_placement.onnx`
+          : `${cleanBase}/models/stepper_placement.onnx`;
+        const decoderUrl = cleanBase.endsWith('/')
+          ? `${cleanBase}models/stepper_decoder.onnx`
+          : `${cleanBase}/models/stepper_decoder.onnx`;
 
         // Check WebGPU availability
         let ep: WasmExecutionProvider = 'wasm';
@@ -270,7 +278,8 @@ export class WasmInferenceEngine {
       waveform && waveform.length > 0
         ? waveform
         : new Float32Array(Math.floor(((numBeats * 60.0) / bpm + 1.0) * 44100));
-    const audioFeatures = clientFeatureExtractor.extract(monoWaveform, numBeats, bpm, offset, startBeat);
+    const sliceStartSec = req.start_sec ?? (startBeat * (60.0 / bpm) - offset);
+    const audioFeatures = clientFeatureExtractor.extract(monoWaveform, numBeats, bpm, offset, startBeat, sliceStartSec);
 
     // 2. Run Stage 1 Placement Model
     onProgress?.(35, 'Running PlacementNet ONNX');
@@ -462,7 +471,9 @@ export class WasmInferenceEngine {
       const id = `req_${Math.random().toString(36).substring(2)}_${Date.now()}`;
       this.pendingRequests.set(id, { resolve, reject, onProgress });
 
-      const baseUrl = import.meta.env.BASE_URL || './';
+      const baseUrl = typeof window !== 'undefined'
+        ? new URL(import.meta.env.BASE_URL || './', window.location.href).href
+        : import.meta.env.BASE_URL || './';
 
       if (waveform && waveform.buffer) {
         worker.postMessage(
