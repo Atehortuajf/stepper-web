@@ -43,7 +43,6 @@ export const AudioWaveformViewer: React.FC<AudioWaveformViewerProps> = ({
   useEffect(() => {
     const unsubTime = audioEngine.onTimeUpdate((t) => {
       setCurrentTime(t);
-      if (onTimeChange) onTimeChange(t);
 
       // Keep playhead in view during playback
       setScrollOffset((currentOffset) => {
@@ -66,7 +65,7 @@ export const AudioWaveformViewer: React.FC<AudioWaveformViewerProps> = ({
       unsubTime();
       unsubState();
     };
-  }, [audioEngine, onTimeChange, zoom]);
+  }, [audioEngine, zoom]);
 
 
   // Redraw canvas
@@ -74,6 +73,10 @@ export const AudioWaveformViewer: React.FC<AudioWaveformViewerProps> = ({
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
+
+    if (showSpectrogram && !audioEngine.spectrogram) {
+      audioEngine.buildSpectrogram();
+    }
 
     const width = container.clientWidth;
     WaveformRenderer.render({
@@ -127,12 +130,14 @@ export const AudioWaveformViewer: React.FC<AudioWaveformViewerProps> = ({
     e.currentTarget.setPointerCapture(e.pointerId);
     const t = calculateTimeFromEvent(e.clientX);
     audioEngine.seek(t);
+    if (onTimeChange) onTimeChange(t);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isDragging) return;
     const t = calculateTimeFromEvent(e.clientX);
     audioEngine.seek(t);
+    if (onTimeChange) onTimeChange(t);
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
@@ -284,7 +289,13 @@ export const AudioWaveformViewer: React.FC<AudioWaveformViewerProps> = ({
           {/* Spectrogram Toggle */}
           <button
             type="button"
-            onClick={() => setShowSpectrogram(!showSpectrogram)}
+            onClick={() => {
+              const next = !showSpectrogram;
+              if (next && !audioEngine.spectrogram) {
+                audioEngine.buildSpectrogram();
+              }
+              setShowSpectrogram(next);
+            }}
             className={`px-2 py-0.5 rounded text-[11px] border ${
               showSpectrogram
                 ? 'bg-[#9e3cff] text-white border-[#b357ff]'

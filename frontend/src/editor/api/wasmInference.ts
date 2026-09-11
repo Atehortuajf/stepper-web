@@ -1,8 +1,8 @@
 /**
  * frontend/src/editor/api/wasmInference.ts
  * In-Browser Neural WASM & WebGPU Inference Engine for Stepper AI.
- * Loads and executes Stage 1 (PlacementNet) and Stage 2 (StepSelectionDecoder)
- * ONNX models directly inside the browser with zero backend dependencies.
+ * Offloads feature extraction, PlacementNet, and StepSelectionDecoder to a dedicated Web Worker,
+ * with chunked event-loop yielding and procedural rule-based fallback.
  */
 
 import * as ort from 'onnxruntime-web';
@@ -23,6 +23,17 @@ export interface WasmEngineState {
   provider: WasmExecutionProvider;
   progressPercent: number;
   errorMessage?: string;
+  isWorkerActive?: boolean;
+}
+
+interface PendingRequest {
+  resolve: (res: GenerateResponse) => void;
+  reject: (err: any) => void;
+  onProgress?: (percent: number, stage?: string) => void;
+}
+
+function yieldToMain(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 export class WasmInferenceEngine {
@@ -33,6 +44,11 @@ export class WasmInferenceEngine {
   private progressPercent: number = 0;
   private errorMessage?: string;
   private loadPromise: Promise<boolean> | null = null;
+
+  // Web Worker management
+  private worker: Worker | null = null;
+  private workerInitialized = false;
+  private pendingRequests = new Map<string, PendingRequest>();
 
   constructor() {
     this.configureOrtEnvironment();
@@ -45,7 +61,10 @@ export class WasmInferenceEngine {
     const baseUrl = import.meta.env.BASE_URL || './';
     const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
     ort.env.wasm.wasmPaths = `${cleanBase}wasm/`;
-    ort.env.wasm.numThreads = Math.min(4, Math.max(1, navigator.hardwareConcurrency || 2));
+    const isIsolated = typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated;
+    ort.env.wasm.numThreads = isIsolated
+      ? Math.min(4, Math.max(1, navigator.hardwareConcurrency || 2))
+      : 1;
   }
 
   public getState(): WasmEngineState {
@@ -54,14 +73,62 @@ export class WasmInferenceEngine {
       provider: this.provider,
       progressPercent: this.progressPercent,
       errorMessage: this.errorMessage,
+      isWorkerActive: this.worker !== null && this.workerInitialized,
     };
   }
 
+  private getWorker(): Worker | null {
+    if (this.worker) return this.worker;
+    if (typeof window === 'undefined' || typeof Worker === 'undefined') {
+      return null;
+    }
+    try {
+      const worker = new Worker(
+        new URL('../workers/inference.worker.ts', import.meta.url),
+        { type: 'module' }
+      );
+
+      worker.onmessage = (e: MessageEvent) => {
+        const data = e.data;
+        if (!data) return;
+
+        if (data.type === 'progress') {
+          if (data.id && this.pendingRequests.has(data.id)) {
+            this.pendingRequests.get(data.id)?.onProgress?.(data.percent, data.stage);
+          }
+        } else if (data.type === 'complete') {
+          if (data.id && this.pendingRequests.has(data.id)) {
+            const entry = this.pendingRequests.get(data.id)!;
+            this.pendingRequests.delete(data.id);
+            entry.resolve(data.response);
+          }
+        } else if (data.type === 'error') {
+          if (data.id && this.pendingRequests.has(data.id)) {
+            const entry = this.pendingRequests.get(data.id)!;
+            this.pendingRequests.delete(data.id);
+            entry.reject(new Error(data.error || 'Worker inference failed'));
+          }
+        }
+      };
+
+      worker.onerror = (err) => {
+        console.warn('[WasmEngine] Worker error event:', err);
+      };
+
+      this.worker = worker;
+      return worker;
+    } catch (err) {
+      console.warn('[WasmEngine] Could not instantiate Web Worker:', err);
+      this.worker = null;
+      return null;
+    }
+  }
+
   /**
-   * Initialize ONNX Runtime Web sessions for placement and decoder models.
+   * Initialize ONNX Runtime Web sessions (in worker if available, else on main thread).
    */
   public async initialize(onProgress?: (percent: number) => void): Promise<boolean> {
-    if (this.status === 'ready' && this.placementSession && this.decoderSession) {
+    if (this.status === 'ready') {
       return true;
     }
 
@@ -74,6 +141,38 @@ export class WasmInferenceEngine {
     onProgress?.(5);
 
     this.loadPromise = (async () => {
+      // 1. Try initializing the Web Worker first
+      const worker = this.getWorker();
+      if (worker) {
+        try {
+          const workerReady = await new Promise<boolean>((resolve) => {
+            const timer = setTimeout(() => resolve(false), 10000);
+            const listener = (e: MessageEvent) => {
+              if (e.data?.type === 'init_result') {
+                clearTimeout(timer);
+                worker.removeEventListener('message', listener);
+                if (e.data.provider) this.provider = e.data.provider;
+                resolve(Boolean(e.data.success));
+              }
+            };
+            worker.addEventListener('message', listener);
+            const baseUrl = import.meta.env.BASE_URL || './';
+            worker.postMessage({ type: 'init', baseUrl });
+          });
+
+          if (workerReady) {
+            this.workerInitialized = true;
+            this.status = 'ready';
+            this.progressPercent = 100;
+            onProgress?.(100);
+            return true;
+          }
+        } catch (workerErr) {
+          console.warn('[WasmEngine] Worker initialization failed, falling back to local thread:', workerErr);
+        }
+      }
+
+      // 2. Fallback: Initialize on main thread
       try {
         const baseUrl = import.meta.env.BASE_URL || './';
         const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
@@ -128,15 +227,27 @@ export class WasmInferenceEngine {
   }
 
   /**
-   * Run full dual-stage neural inference in the browser.
+   * Run full dual-stage neural inference (via Web Worker off-thread, or local fallback).
    */
   public async generate(
     req: GenerateRequest,
-    waveform?: Float32Array
+    waveform?: Float32Array,
+    onProgress?: (percent: number, stage?: string) => void
   ): Promise<GenerateResponse> {
     const startTime = performance.now();
 
-    const isReady = await this.initialize();
+    // 1. If Web Worker is available and supported, delegate generation off the main thread
+    const worker = this.getWorker();
+    if (worker) {
+      try {
+        return await this.generateViaWorker(worker, req, waveform, onProgress);
+      } catch (workerErr) {
+        console.warn('[WasmEngine] Worker generation failed, falling back to main-thread/rule engine:', workerErr);
+      }
+    }
+
+    // 2. Main thread fallback with chunked event-loop yielding
+    const isReady = await this.initialize((pct) => onProgress?.(pct, 'Loading models'));
     if (!isReady || !this.placementSession || !this.decoderSession) {
       return this.generateRuleBasedFallback(req, startTime);
     }
@@ -145,17 +256,25 @@ export class WasmInferenceEngine {
     const numBeats = Math.max(4.0, req.num_beats ?? 16.0);
     const bpm = req.bpm ?? 140.0;
     const offset = req.offset ?? 0.0;
-    const difficultyMeter = typeof req.difficulty === 'number' ? req.difficulty : parseInt(req.difficulty, 10) || 9;
+    const difficultyMeter =
+      typeof req.difficulty === 'number' ? req.difficulty : parseInt(req.difficulty, 10) || 9;
     const diffIdx = Math.max(0, Math.min(4, Math.floor((difficultyMeter - 1) / 4)));
     const threshold = req.threshold ?? 0.5;
     const temperature = req.temperature ?? 1.0;
     const useFsm = req.use_fsm ?? true;
 
     // 1. Extract audio features
-    const monoWaveform = waveform && waveform.length > 0 ? waveform : new Float32Array(Math.floor((numBeats * 60.0 / bpm + 1.0) * 44100));
+    onProgress?.(15, 'Extracting audio features');
+    await yieldToMain();
+    const monoWaveform =
+      waveform && waveform.length > 0
+        ? waveform
+        : new Float32Array(Math.floor(((numBeats * 60.0) / bpm + 1.0) * 44100));
     const audioFeatures = clientFeatureExtractor.extract(monoWaveform, numBeats, bpm, offset, startBeat);
 
     // 2. Run Stage 1 Placement Model
+    onProgress?.(35, 'Running PlacementNet ONNX');
+    await yieldToMain();
     const audioTensor = new ort.Tensor('float32', audioFeatures, [1, 2, numBeats, 48, 128]);
     const diffTensor = new ort.Tensor('int64', BigInt64Array.from([BigInt(diffIdx)]), [1]);
 
@@ -173,11 +292,13 @@ export class WasmInferenceEngine {
       tech_vector: techTensor,
     });
 
-    const probsData = pResults.probs.data as Float32Array; // [1, numBeats, 48]
-    const acousticMapData = pResults.acoustic_map.data as Float32Array; // [1, totalTicks, 256]
+    const probsData = pResults.probs.data as Float32Array;
+    const acousticMapData = pResults.acoustic_map.data as Float32Array;
     const totalTicks = numBeats * 48;
 
     // 3. Peak Picking & Non-Maximum Suppression (3-tick window)
+    onProgress?.(50, 'Peak picking & NMS');
+    await yieldToMain();
     const placedTicks: number[] = [];
     for (let t = 0; t < totalTicks; t++) {
       const pVal = probsData[t];
@@ -192,6 +313,7 @@ export class WasmInferenceEngine {
 
     if (placedTicks.length === 0) {
       const latencyMs = performance.now() - startTime;
+      onProgress?.(100, 'Complete');
       return {
         placements: [],
         latency_ms: latencyMs,
@@ -205,10 +327,8 @@ export class WasmInferenceEngine {
     const maxLen = 64;
     const numPlaced = placedTicks.length;
     const placements: Placement[] = [];
-
     const fsm = new ClientFootStateMachine(diffIdx);
 
-    // Process notes in fixed windows of maxLen
     for (let chunkStart = 0; chunkStart < numPlaced; chunkStart += maxLen) {
       const chunkEnd = Math.min(numPlaced, chunkStart + maxLen);
       const chunkSize = chunkEnd - chunkStart;
@@ -231,19 +351,24 @@ export class WasmInferenceEngine {
         phaseBuf[i] = BigInt(tick % 48);
         measBuf[i] = BigInt(Math.floor(beat) % 4);
 
-        // Copy 256-dim acoustic vector for tick
         const mapOffset = tick * 256;
         for (let d = 0; d < 256; d++) {
           hBuf[i * 256 + d] = acousticMapData[mapOffset + d];
         }
       }
 
-      // Autoregressively predict tokens for this chunk
       for (let stepIdx = 0; stepIdx < chunkSize; stepIdx++) {
         const globalIdx = chunkStart + stepIdx;
         const tick = placedTicks[globalIdx];
         const beat = tick / 48.0;
         const delta = deltaBuf[stepIdx];
+
+        // Yield to browser event loop every 4 steps to maintain 60/120 FPS
+        if (stepIdx % 4 === 0) {
+          const pct = 50 + Math.floor((globalIdx / numPlaced) * 45);
+          onProgress?.(pct, `Decoding step ${globalIdx + 1}/${numPlaced}`);
+          await yieldToMain();
+        }
 
         const decoderInputs = {
           step_tokens: new ort.Tensor('int64', tokensBuf, [1, maxLen]),
@@ -256,10 +381,9 @@ export class WasmInferenceEngine {
         };
 
         const dResults = await this.decoderSession.run(decoderInputs);
-        const stepLogits = dResults.step_logits.data as Float32Array; // [1, maxLen, 96]
+        const stepLogits = dResults.step_logits.data as Float32Array;
         const logitOffset = stepIdx * VOCAB_SIZE;
 
-        // Apply FSM Playability Logit Mask
         const maskedLogits = new Float32Array(VOCAB_SIZE);
         const fsmMask = useFsm ? fsm.computeMask(beat, delta) : new Float32Array(VOCAB_SIZE);
 
@@ -267,8 +391,7 @@ export class WasmInferenceEngine {
           maskedLogits[c] = stepLogits[logitOffset + c] + fsmMask[c];
         }
 
-        // Temperature-scaled softmax or argmax
-        let chosenToken = 1; // Default '1000'
+        let chosenToken = 1;
         if (temperature <= 0.1) {
           let maxVal = -Infinity;
           for (let c = 1; c < VOCAB_SIZE; c++) {
@@ -278,7 +401,6 @@ export class WasmInferenceEngine {
             }
           }
         } else {
-          // Temperature scaling
           let maxLogit = -Infinity;
           for (let c = 1; c < VOCAB_SIZE; c++) {
             if (maskedLogits[c] > maxLogit) maxLogit = maskedLogits[c];
@@ -320,6 +442,7 @@ export class WasmInferenceEngine {
     }
 
     const latencyMs = performance.now() - startTime;
+    onProgress?.(100, 'Generation complete');
     return {
       placements,
       latency_ms: latencyMs,
@@ -327,6 +450,29 @@ export class WasmInferenceEngine {
       difficulty_str: ['Novice', 'Easy', 'Medium', 'Hard', 'Expert'][diffIdx],
       model_used: `wasm-${this.provider}`,
     };
+  }
+
+  private generateViaWorker(
+    worker: Worker,
+    req: GenerateRequest,
+    waveform?: Float32Array,
+    onProgress?: (percent: number, stage?: string) => void
+  ): Promise<GenerateResponse> {
+    return new Promise((resolve, reject) => {
+      const id = `req_${Math.random().toString(36).substring(2)}_${Date.now()}`;
+      this.pendingRequests.set(id, { resolve, reject, onProgress });
+
+      const baseUrl = import.meta.env.BASE_URL || './';
+
+      if (waveform && waveform.buffer) {
+        worker.postMessage(
+          { type: 'generate', id, req, waveform, baseUrl },
+          [waveform.buffer]
+        );
+      } else {
+        worker.postMessage({ type: 'generate', id, req, baseUrl });
+      }
+    });
   }
 
   /**
@@ -338,7 +484,8 @@ export class WasmInferenceEngine {
   ): GenerateResponse {
     const startBeat = req.start_beat ?? 0.0;
     const numBeats = Math.max(4.0, req.num_beats ?? 16.0);
-    const difficultyMeter = typeof req.difficulty === 'number' ? req.difficulty : parseInt(req.difficulty, 10) || 9;
+    const difficultyMeter =
+      typeof req.difficulty === 'number' ? req.difficulty : parseInt(req.difficulty, 10) || 9;
     const diffIdx = Math.max(0, Math.min(4, Math.floor((difficultyMeter - 1) / 4)));
     const zTech = req.tech_vector || new Array(16).fill(0);
 
@@ -377,6 +524,14 @@ export class WasmInferenceEngine {
       difficulty_str: ['Novice', 'Easy', 'Medium', 'Hard', 'Expert'][diffIdx],
       model_used: 'client-rule',
     };
+  }
+
+  public dispose(): void {
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+      this.workerInitialized = false;
+    }
   }
 }
 

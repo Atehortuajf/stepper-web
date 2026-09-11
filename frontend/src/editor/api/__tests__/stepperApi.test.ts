@@ -14,6 +14,7 @@ describe('StepperApiClient', () => {
 
   beforeEach(() => {
     client = new StepperApiClient('http://localhost:8000');
+    client.setEngineMode('backend');
   });
 
   afterEach(() => {
@@ -239,8 +240,33 @@ describe('StepperApiClient', () => {
     session.close();
   });
 
-  it('exports singleton instance stepperApi', () => {
+  it('exports singleton instance stepperApi with default wasm engineMode', () => {
     expect(stepperApi).toBeDefined();
     expect(stepperApi).toBeInstanceOf(StepperApiClient);
+    expect(stepperApi.getEngineMode()).toBe('wasm');
+  });
+
+  it('checks health locally in wasm mode without calling fetch', async () => {
+    const wasmClient = new StepperApiClient();
+    globalThis.fetch = vi.fn();
+    const res = await wasmClient.checkHealth();
+    expect(res).toEqual({
+      status: 'healthy',
+      device: 'wasm-local',
+      model_loaded: true,
+    });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('solves parity locally in wasm mode without calling fetch', async () => {
+    const wasmClient = new StepperApiClient();
+    globalThis.fetch = vi.fn();
+    const res = await wasmClient.solveParity({
+      notes: [{ beat: 0.0, arrows: '1000' }],
+    });
+    expect(res.is_playable).toBe(true);
+    expect(res.foot_sequence.length).toBeGreaterThan(0);
+    expect(res.annotated_steps.length).toBe(1);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });

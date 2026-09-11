@@ -6,7 +6,7 @@
  * and Mobile Responsive Touch Editing Workflow.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AudioEngine } from './editor/audio/AudioEngine';
 import { AudioWaveformViewer } from './editor/audio/AudioWaveformViewer';
 import { encodeWAV } from './editor/audio/wavEncoder';
@@ -190,27 +190,33 @@ export function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Animation frame loop for smooth playback time synchronization
-  const rafRef = useRef<number | null>(null);
+  // Throttled HUD update (10 Hz = 100ms) to eliminate 60-120Hz root re-render cascade
   useEffect(() => {
-    const updatePlayback = () => {
-      if (audioEngine.isPlaying) {
-        setCurrentPlaybackTime(audioEngine.getCurrentTime());
-        rafRef.current = requestAnimationFrame(updatePlayback);
-      }
-    };
+    let intervalId: ReturnType<typeof setInterval> | null = null;
 
     if (isPlaying) {
-      rafRef.current = requestAnimationFrame(updatePlayback);
-    } else if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
+      intervalId = setInterval(() => {
+        if (audioEngine.isPlaying) {
+          setCurrentPlaybackTime(audioEngine.getCurrentTime());
+        }
+      }, 100);
+    } else {
+      setCurrentPlaybackTime(audioEngine.getCurrentTime());
     }
 
     return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (intervalId) clearInterval(intervalId);
     };
   }, [isPlaying, audioEngine]);
+
+  // Synchronize playback state and time when playback finishes or changes externally
+  useEffect(() => {
+    const unsub = audioEngine.onStateChange((playing) => {
+      setIsPlaying(playing);
+      setCurrentPlaybackTime(audioEngine.getCurrentTime());
+    });
+    return unsub;
+  }, [audioEngine]);
 
   // Initial synthetic audio, backend health check, and WASM preloading
   useEffect(() => {
@@ -219,7 +225,7 @@ export function App() {
       audioEngine.generateSyntheticTrack(initialBpm, 45);
     }
 
-    // Initialize WASM engine in background
+    // Initialize in 'wasm' mode directly for 100% offline-first operation
     stepperApi.setEngineMode('wasm');
     import('./editor/api').then(({ wasmInferenceEngine }) => {
       wasmInferenceEngine
@@ -235,8 +241,13 @@ export function App() {
     stepperApi
       .checkHealth()
       .then((h) => {
-        setBackendStatus(h.status === 'ok' || h.status === 'healthy' ? 'Online' : 'Degraded');
-        setBackendDevice(h.device || (h.mps_available ? 'MPS' : 'CPU'));
+        if (h.device === 'wasm-local') {
+          setBackendStatus('Local Mode');
+          setBackendDevice('WASM (In-Browser)');
+        } else {
+          setBackendStatus(h.status === 'ok' || h.status === 'healthy' ? 'Online' : 'Degraded');
+          setBackendDevice(h.device || (h.mps_available ? 'MPS' : 'CPU'));
+        }
       })
       .catch(() => {
         setBackendStatus('Local Mode');
@@ -261,6 +272,12 @@ export function App() {
       .solveParity({
         steps_type: activeChart.stepsType,
         notes: activeChart.noteRows.map((r) => ({ beat: r.beat, arrows: r.arrows })),
+        holds: (activeChart.holds || []).map((h) => ({
+          track: h.track,
+          start_beat: h.startBeat,
+          end_beat: h.endBeat,
+          is_roll: h.isRoll,
+        })),
         bpms,
         difficulty_meter: activeChart.meter || difficultyMeter,
       })
@@ -347,6 +364,7 @@ export function App() {
     if (audioEngine.isPlaying) {
       audioEngine.pause();
       setIsPlaying(false);
+      setCurrentPlaybackTime(audioEngine.getCurrentTime());
     } else {
       audioEngine.play(currentPlaybackTime);
       setIsPlaying(true);
@@ -738,14 +756,16 @@ export function App() {
           }
           waveformSlice = mono;
 
-          const sliced = audioEngine.channelData.map((ch) => ch.slice(startSample, endSample));
-          const wavBuf = encodeWAV(sliced, audioEngine.sampleRate);
-          const bytes = new Uint8Array(wavBuf);
-          let binary = '';
-          for (let i = 0; i < bytes.byteLength; i++) {
-            binary += String.fromCharCode(bytes[i]);
+          if (engineMode === 'backend') {
+            const sliced = audioEngine.channelData.map((ch) => ch.slice(startSample, endSample));
+            const wavBuf = encodeWAV(sliced, audioEngine.sampleRate);
+            const bytes = new Uint8Array(wavBuf);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            audioSliceBase64 = btoa(binary);
           }
-          audioSliceBase64 = btoa(binary);
         }
       } catch (err) {
         console.warn('Could not slice audio buffer, falling back to synthetic audio:', err);
@@ -763,7 +783,10 @@ export function App() {
           bpm,
           threshold: 0.5,
         },
-        waveformSlice
+        waveformSlice,
+        (pct) => {
+          setWasmStatus(`Generating ${pct}%`);
+        }
       );
 
       setProposedPlacements(resp.placements);
@@ -809,8 +832,9 @@ export function App() {
       setModelUsed('fallback-local');
     } finally {
       setIsGenerating(false);
+      setWasmStatus((prev) => (prev.startsWith('Generating') ? 'ready' : prev));
     }
-  }, [rangeStartBeat, rangeEndBeat, timingEngine, techVector, difficultyMeter, audioEngine]);
+  }, [rangeStartBeat, rangeEndBeat, timingEngine, techVector, difficultyMeter, audioEngine, engineMode]);
 
   // Accept & Commit proposed notes to active chart
   const handleAcceptProposed = useCallback(
@@ -978,6 +1002,8 @@ export function App() {
               currentBeat={currentBeat}
               stepsType={activeChart?.stepsType}
               proposedPlacements={proposedPlacements}
+              audioEngine={audioEngine}
+              timingEngine={timingEngine}
               onBeatClick={(b) => {
                 const sec = timingEngine.beatToSeconds(b);
                 audioEngine.seek(sec);
@@ -1217,6 +1243,8 @@ export function App() {
                       currentBeat={currentBeat}
                       stepsType={activeChart.stepsType}
                       proposedPlacements={proposedPlacements}
+                      audioEngine={audioEngine}
+                      timingEngine={timingEngine}
                       onBeatClick={(b) => {
                         const sec = timingEngine.beatToSeconds(b);
                         audioEngine.seek(sec);

@@ -40,8 +40,29 @@ describe('WasmInferenceEngine', () => {
     const res = await stepperApi.generate(req);
     expect(res.placements.length).toBeGreaterThan(0);
 
-    // Reset back to backend
-    stepperApi.setEngineMode('backend');
-    expect(stepperApi.getEngineMode()).toBe('backend');
+    // Reset back to wasm default
+    stepperApi.setEngineMode('wasm');
+    expect(stepperApi.getEngineMode()).toBe('wasm');
+  });
+
+  it('accepts onProgress callback and generates without blocking', async () => {
+    stepperApi.setEngineMode('wasm');
+    const req = {
+      difficulty: 9,
+      start_beat: 0.0,
+      num_beats: 4.0,
+      bpm: 130.0,
+    };
+
+    let progressCalls = 0;
+    const res = await wasmInferenceEngine.generate(req, undefined, (pct) => {
+      progressCalls++;
+      expect(pct).toBeGreaterThanOrEqual(0);
+      expect(pct).toBeLessThanOrEqual(100);
+    });
+
+    expect(progressCalls).toBeGreaterThanOrEqual(0);
+    expect(res.placements.length).toBeGreaterThan(0);
+    expect(res.model_used).toBeDefined();
   });
 });

@@ -4,6 +4,9 @@
  * Supports /api/generate, /api/ws/generate, /api/solve-parity, and /api/health.
  */
 
+import { solveParityLocally } from '../biomechanics/localParitySolver';
+import type { NoteRow, HoldNote } from '../engine/types';
+
 export interface GenerateRequest {
   audio_slice?: string | null;
   difficulty: number | string;
@@ -57,9 +60,17 @@ export interface BpmInput {
   bpm: number;
 }
 
+export interface HoldInput {
+  track: number;
+  start_beat: number;
+  end_beat: number;
+  is_roll?: boolean;
+}
+
 export interface SolveParityRequest {
   steps_type?: string;
   notes: NoteInput[];
+  holds?: HoldInput[];
   bpms?: BpmInput[];
   difficulty_meter?: number;
 }
@@ -139,19 +150,46 @@ export class StepperApiClient {
 
   /**
    * Check backend health and model loading status.
+   * When in 'wasm' mode, resolves immediately with wasm-local status without calling fetch().
    */
   async checkHealth(): Promise<HealthResponse> {
-    const res = await fetch(`${this.baseUrl}/api/health`, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-    });
-    if (!res.ok) {
-      throw new Error(`Health check failed with HTTP ${res.status}: ${res.statusText}`);
+    if (this.engineMode === 'wasm' || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      return {
+        status: 'healthy',
+        device: 'wasm-local',
+        model_loaded: true,
+      };
     }
-    return res.json();
+
+    try {
+      const res = await fetch(`${this.baseUrl}/api/health`, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+      if (!res.ok) {
+        if (this.engineMode === 'auto') {
+          return {
+            status: 'healthy',
+            device: 'wasm-local',
+            model_loaded: true,
+          };
+        }
+        throw new Error(`Health check failed with HTTP ${res.status}: ${res.statusText}`);
+      }
+      return res.json();
+    } catch (err) {
+      if (this.engineMode === 'auto') {
+        return {
+          status: 'healthy',
+          device: 'wasm-local',
+          model_loaded: true,
+        };
+      }
+      throw err;
+    }
   }
 
-  private engineMode: 'wasm' | 'backend' | 'auto' = 'backend';
+  private engineMode: 'wasm' | 'backend' | 'auto' = 'wasm';
 
   public getEngineMode(): 'wasm' | 'backend' | 'auto' {
     return this.engineMode;
@@ -164,10 +202,14 @@ export class StepperApiClient {
   /**
    * Run chart generation via in-browser WASM or remote backend.
    */
-  async generate(req: GenerateRequest, waveform?: Float32Array): Promise<GenerateResponse> {
-    if (this.engineMode === 'wasm') {
+  async generate(
+    req: GenerateRequest,
+    waveform?: Float32Array,
+    onProgress?: (percent: number, stage?: string) => void
+  ): Promise<GenerateResponse> {
+    if (this.engineMode === 'wasm' || (typeof navigator !== 'undefined' && !navigator.onLine)) {
       const { wasmInferenceEngine } = await import('./wasmInference');
-      return wasmInferenceEngine.generate(req, waveform);
+      return wasmInferenceEngine.generate(req, waveform, onProgress);
     }
 
     if (this.engineMode === 'backend') {
@@ -177,7 +219,7 @@ export class StepperApiClient {
     // Auto mode: Try in-browser WASM first, fallback to backend or rule
     try {
       const { wasmInferenceEngine } = await import('./wasmInference');
-      return await wasmInferenceEngine.generate(req, waveform);
+      return await wasmInferenceEngine.generate(req, waveform, onProgress);
     } catch {
       try {
         return await this.generateViaBackend(req);
@@ -221,9 +263,45 @@ export class StepperApiClient {
   }
 
   /**
-   * Run biomechanical foot solver on the server.
+   * Run biomechanical foot solver on the server or locally in WASM mode.
+   * When in 'wasm' mode, calls solveParityLocally with zero network requests.
    */
   async solveParity(req: SolveParityRequest): Promise<SolveParityResponse> {
+    if (this.engineMode === 'wasm' || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      const noteRows: NoteRow[] = (req.notes || []).map((n) => ({
+        beat: n.beat,
+        row: Math.round(n.beat * 48),
+        arrows: n.arrows,
+      }));
+      const holds: HoldNote[] = (req.holds || []).map((h) => ({
+        track: h.track,
+        startBeat: h.start_beat,
+        endBeat: h.end_beat,
+        startRow: Math.round(h.start_beat * 48),
+        endRow: Math.round(h.end_beat * 48),
+        isRoll: h.is_roll ?? false,
+      }));
+      const bpms = req.bpms && req.bpms.length > 0 ? req.bpms : [{ beat: 0.0, bpm: 120.0 }];
+      const meter = req.difficulty_meter ?? 9;
+      const localRes = solveParityLocally(noteRows, holds, bpms, meter);
+      return {
+        is_playable: localRes.is_playable,
+        total_cost: localRes.total_cost,
+        foot_sequence: localRes.foot_sequence,
+        annotated_steps: localRes.steps.map((s) => ({
+          beat: s.beat,
+          arrows: s.arrows,
+          foot: s.foot,
+          cost: s.cost,
+          warning: s.warning,
+          left_pos: s.left_pos,
+          right_pos: s.right_pos,
+          flags: s.flags,
+        })),
+        stats: localRes.stats,
+      };
+    }
+
     const payload = {
       steps_type: req.steps_type ?? 'dance-single',
       notes: req.notes,
@@ -231,21 +309,59 @@ export class StepperApiClient {
       difficulty_meter: req.difficulty_meter ?? 9,
     };
 
-    const res = await fetch(`${this.baseUrl}/api/solve-parity`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+    try {
+      const res = await fetch(`${this.baseUrl}/api/solve-parity`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
 
-    if (!res.ok) {
-      const errorText = await res.text().catch(() => '');
-      throw new Error(`Parity solve failed with HTTP ${res.status}: ${errorText || res.statusText}`);
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => '');
+        throw new Error(`Parity solve failed with HTTP ${res.status}: ${errorText || res.statusText}`);
+      }
+
+      return res.json();
+    } catch (err) {
+      if (this.engineMode === 'auto') {
+        const noteRows: NoteRow[] = (req.notes || []).map((n) => ({
+          beat: n.beat,
+          row: Math.round(n.beat * 48),
+          arrows: n.arrows,
+        }));
+        const holds = (req.holds || []).map((h) => ({
+          track: h.track,
+          startBeat: h.start_beat,
+          endBeat: h.end_beat,
+          startRow: Math.round(h.start_beat * 48),
+          endRow: Math.round(h.end_beat * 48),
+          isRoll: h.is_roll ?? false,
+        }));
+        const bpms = req.bpms && req.bpms.length > 0 ? req.bpms : [{ beat: 0.0, bpm: 120.0 }];
+        const meter = req.difficulty_meter ?? 9;
+        const localRes = solveParityLocally(noteRows, holds, bpms, meter);
+        return {
+          is_playable: localRes.is_playable,
+          total_cost: localRes.total_cost,
+          foot_sequence: localRes.foot_sequence,
+          annotated_steps: localRes.steps.map((s) => ({
+            beat: s.beat,
+            arrows: s.arrows,
+            foot: s.foot,
+            cost: s.cost,
+            warning: s.warning,
+            left_pos: s.left_pos,
+            right_pos: s.right_pos,
+            flags: s.flags,
+          })),
+          stats: localRes.stats,
+        };
+      }
+      throw err;
     }
-
-    return res.json();
   }
 
   /**
@@ -260,6 +376,37 @@ export class StepperApiClient {
       onError?: (err: Error) => void;
     }
   ): { cancel: () => void; close: () => void } {
+    if (this.engineMode === 'wasm' || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      let cancelled = false;
+      callbacks.onProgress?.(10, 'Initializing local inference...');
+      import('./wasmInference').then(({ wasmInferenceEngine }) => {
+        if (cancelled) return;
+        wasmInferenceEngine
+          .generate(req, undefined, (pct, stage) => {
+            if (cancelled) return;
+            callbacks.onProgress?.(pct, stage);
+          })
+          .then((res) => {
+            if (cancelled) return;
+            callbacks.onChunk?.(res.placements);
+            callbacks.onProgress?.(100, 'Complete');
+            callbacks.onComplete?.(res.placements, res.latency_ms);
+          })
+          .catch((err) => {
+            if (cancelled) return;
+            callbacks.onError?.(err instanceof Error ? err : new Error(String(err)));
+          });
+      });
+      return {
+        cancel: () => {
+          cancelled = true;
+        },
+        close: () => {
+          cancelled = true;
+        },
+      };
+    }
+
     const wsUrl = this.baseUrl.replace(/^http/, 'ws') + '/api/ws/generate';
     const ws = new WebSocket(wsUrl);
 

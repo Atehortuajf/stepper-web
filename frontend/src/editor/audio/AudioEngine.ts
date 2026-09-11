@@ -51,9 +51,19 @@ export class AudioEngine {
   // Bookmarking
   public bookmarks: AudioBookmark[] = [];
 
-  // Precomputed visual caches
-  public peakPyramid: PeakPyramid | null = null;
+  // Precomputed visual caches (lazy on-demand)
+  private _peakPyramid: PeakPyramid | null = null;
+  public get peakPyramid(): PeakPyramid | null {
+    if (!this._peakPyramid && this.channelData.length > 0) {
+      this.buildPeakPyramid();
+    }
+    return this._peakPyramid;
+  }
+  public set peakPyramid(val: PeakPyramid | null) {
+    this._peakPyramid = val;
+  }
   public spectrogram: SpectrogramData | null = null;
+  private monoSamples: Float32Array | null = null;
 
   // Listeners
   private timeListeners = new Set<(timeSec: number) => void>();
@@ -130,13 +140,14 @@ export class AudioEngine {
     this.duration = buffer.duration;
     this.sampleRate = buffer.sampleRate;
     this.channelData = [];
+    this.monoSamples = null;
 
     for (let c = 0; c < buffer.numberOfChannels; c++) {
       this.channelData.push(buffer.getChannelData(c));
     }
 
-    this.buildPeakPyramid();
-    this.buildSpectrogram();
+    this._peakPyramid = null;
+    this.spectrogram = null;
   }
 
   /**
@@ -145,27 +156,76 @@ export class AudioEngine {
   private buildPeakPyramid(): void {
     if (!this.channelData || this.channelData.length === 0) return;
 
-    const mono = this.getMonoSamples();
-    const totalSamples = mono.length;
+    const ch0 = this.channelData[0];
+    const ch1 = this.channelData.length > 1 ? this.channelData[1] : null;
+    const totalSamples = ch0.length;
+
     // Multi-resolution bucket sizes
     const steps = [128, 512, 2048, 8192];
     const levels: PeakPyramid['levels'] = [];
 
-    for (const step of steps) {
+    // Base level (step 128): single pass over channel buffers directly (no intermediate allocation)
+    const baseStep = steps[0];
+    const numBaseBuckets = Math.ceil(totalSamples / baseStep);
+    const baseMins = new Float32Array(numBaseBuckets);
+    const baseMaxs = new Float32Array(numBaseBuckets);
+
+    if (ch1) {
+      for (let b = 0; b < numBaseBuckets; b++) {
+        const start = b * baseStep;
+        const end = Math.min(start + baseStep, totalSamples);
+        let min = 1.0;
+        let max = -1.0;
+
+        for (let s = start; s < end; s++) {
+          const v = (ch0[s] + ch1[s]) * 0.5;
+          if (v < min) min = v;
+          if (v > max) max = v;
+        }
+
+        baseMins[b] = min > max ? 0 : min;
+        baseMaxs[b] = min > max ? 0 : max;
+      }
+    } else {
+      for (let b = 0; b < numBaseBuckets; b++) {
+        const start = b * baseStep;
+        const end = Math.min(start + baseStep, totalSamples);
+        let min = 1.0;
+        let max = -1.0;
+
+        for (let s = start; s < end; s++) {
+          const v = ch0[s];
+          if (v < min) min = v;
+          if (v > max) max = v;
+        }
+
+        baseMins[b] = min > max ? 0 : min;
+        baseMaxs[b] = min > max ? 0 : max;
+      }
+    }
+
+    levels.push({ step: baseStep, mins: baseMins, maxs: baseMaxs });
+
+    // Higher levels downsampled hierarchically from previous level in O(numBuckets)
+    for (let l = 1; l < steps.length; l++) {
+      const step = steps[l];
+      const prevLevel = levels[l - 1];
+      const ratio = step / prevLevel.step;
       const numBuckets = Math.ceil(totalSamples / step);
       const mins = new Float32Array(numBuckets);
       const maxs = new Float32Array(numBuckets);
 
       for (let b = 0; b < numBuckets; b++) {
-        const start = b * step;
-        const end = Math.min(start + step, totalSamples);
+        const start = b * ratio;
+        const end = Math.min(start + ratio, prevLevel.mins.length);
         let min = 1.0;
         let max = -1.0;
 
-        for (let s = start; s < end; s++) {
-          const v = mono[s];
-          if (v < min) min = v;
-          if (v > max) max = v;
+        for (let i = start; i < end; i++) {
+          const vMin = prevLevel.mins[i];
+          const vMax = prevLevel.maxs[i];
+          if (vMin < min) min = vMin;
+          if (vMax > max) max = vMax;
         }
 
         mins[b] = min > max ? 0 : min;
@@ -175,7 +235,7 @@ export class AudioEngine {
       levels.push({ step, mins, maxs });
     }
 
-    this.peakPyramid = {
+    this._peakPyramid = {
       sampleRate: this.sampleRate,
       duration: this.duration,
       levels,
@@ -183,10 +243,12 @@ export class AudioEngine {
   }
 
   /**
-   * Computes downsampled STFT spectrogram magnitudes for visual rendering.
+   * Computes STFT spectrogram magnitudes using Radix-2 Cooley-Tukey FFT.
+   * Generates spectrogram on-demand with zero thread-locking.
    */
-  private buildSpectrogram(): void {
-    if (!this.channelData || this.channelData.length === 0) return;
+  public buildSpectrogram(): SpectrogramData | null {
+    if (this.spectrogram) return this.spectrogram;
+    if (!this.channelData || this.channelData.length === 0) return null;
 
     const mono = this.getMonoSamples();
     const totalSamples = mono.length;
@@ -195,41 +257,94 @@ export class AudioEngine {
     const freqBins = fftSize / 2;
     const timeBins = Math.floor((totalSamples - fftSize) / hopSize);
 
-    if (timeBins <= 0) return;
+    if (timeBins <= 0) return null;
 
-    // Hann window
+    // 1. Precompute Hann window
     const window = new Float32Array(fftSize);
     for (let i = 0; i < fftSize; i++) {
       window[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (fftSize - 1)));
     }
 
+    // 2. Precompute bit reversal table for N = 512 (9 bits)
+    const nBits = Math.log2(fftSize);
+    const bitReverseTable = new Uint16Array(fftSize);
+    for (let i = 0; i < fftSize; i++) {
+      let rev = 0;
+      for (let b = 0; b < nBits; b++) {
+        if ((i >> b) & 1) {
+          rev |= 1 << (nBits - 1 - b);
+        }
+      }
+      bitReverseTable[i] = rev;
+    }
+
+    // 3. Precompute twiddle factors
+    const halfFft = fftSize / 2;
+    const twiddleReal = new Float32Array(halfFft);
+    const twiddleImag = new Float32Array(halfFft);
+    for (let k = 0; k < halfFft; k++) {
+      const angle = (-2.0 * Math.PI * k) / fftSize;
+      twiddleReal[k] = Math.cos(angle);
+      twiddleImag[k] = Math.sin(angle);
+    }
+
+    // Work arrays
+    const workReal = new Float32Array(fftSize);
+    const workImag = new Float32Array(fftSize);
     const magnitudes = new Float32Array(timeBins * freqBins);
 
-    // Simple Real FFT approximation for visual display
+    // 4. Compute STFT using Cooley-Tukey Radix-2 FFT
     for (let t = 0; t < timeBins; t++) {
       const offset = t * hopSize;
       let maxMag = 1e-6;
 
-      for (let k = 0; k < freqBins; k++) {
-        let real = 0;
-        let imag = 0;
-        // Sample every 2 steps to optimize visual spectrogram generation speed
-        for (let n = 0; n < fftSize; n += 2) {
-          const sample = mono[offset + n] * window[n];
-          const angle = (2 * Math.PI * k * n) / fftSize;
-          real += sample * Math.cos(angle);
-          imag -= sample * Math.sin(angle);
+      // Bit-reversal copy with Hann window
+      for (let i = 0; i < fftSize; i++) {
+        const rev = bitReverseTable[i];
+        workReal[rev] = mono[offset + i] * window[i];
+        workImag[rev] = 0.0;
+      }
+
+      // Radix-2 butterflies
+      for (let len = 2; len <= fftSize; len <<= 1) {
+        const halfLen = len >> 1;
+        const step = fftSize / len;
+
+        for (let i = 0; i < fftSize; i += len) {
+          for (let j = 0; j < halfLen; j++) {
+            const k = j * step;
+            const uR = workReal[i + j];
+            const uI = workImag[i + j];
+            const vR = workReal[i + j + halfLen];
+            const vI = workImag[i + j + halfLen];
+            const tR = twiddleReal[k];
+            const tI = twiddleImag[k];
+
+            const rotR = vR * tR - vI * tI;
+            const rotI = vR * tI + vI * tR;
+
+            workReal[i + j] = uR + rotR;
+            workImag[i + j] = uI + rotI;
+            workReal[i + j + halfLen] = uR - rotR;
+            workImag[i + j + halfLen] = uI - rotI;
+          }
         }
-        const mag = Math.sqrt(real * real + imag * imag);
-        magnitudes[t * freqBins + k] = mag;
+      }
+
+      const binOffset = t * freqBins;
+      for (let k = 0; k < freqBins; k++) {
+        const r = workReal[k];
+        const im = workImag[k];
+        const mag = Math.sqrt(r * r + im * im);
+        magnitudes[binOffset + k] = mag;
         if (mag > maxMag) maxMag = mag;
       }
 
       // Local logarithmic normalization
       for (let k = 0; k < freqBins; k++) {
-        const raw = magnitudes[t * freqBins + k];
+        const raw = magnitudes[binOffset + k];
         const logMag = Math.log10(1 + 9 * (raw / maxMag));
-        magnitudes[t * freqBins + k] = Math.max(0, Math.min(1, logMag));
+        magnitudes[binOffset + k] = Math.max(0, Math.min(1, logMag));
       }
     }
 
@@ -241,11 +356,21 @@ export class AudioEngine {
       sampleRate: this.sampleRate,
       magnitudes,
     };
+
+    return this.spectrogram;
+  }
+
+  public ensureSpectrogram(): SpectrogramData | null {
+    return this.buildSpectrogram();
   }
 
   public getMonoSamples(): Float32Array {
+    if (this.monoSamples) return this.monoSamples;
     if (this.channelData.length === 0) return new Float32Array(0);
-    if (this.channelData.length === 1) return this.channelData[0];
+    if (this.channelData.length === 1) {
+      this.monoSamples = this.channelData[0];
+      return this.monoSamples;
+    }
 
     const len = this.channelData[0].length;
     const mono = new Float32Array(len);
@@ -255,15 +380,24 @@ export class AudioEngine {
     for (let i = 0; i < len; i++) {
       mono[i] = (left[i] + right[i]) * 0.5;
     }
+    this.monoSamples = mono;
     return mono;
   }
 
   /**
    * Starts playback from current pauseOffset or specified time.
    */
-  public play(startSec?: number): void {
+  public async play(startSec?: number): Promise<void> {
     if (!this.audioBuffer) return;
     const ctx = this.getAudioContext();
+
+    if (ctx.state === 'suspended') {
+      try {
+        await ctx.resume();
+      } catch {
+        // AudioContext resume error handling
+      }
+    }
 
     if (this.isPlaying) {
       this.stopSource();
@@ -366,8 +500,9 @@ export class AudioEngine {
       return this.pauseOffset;
     }
     const ctx = this.getAudioContext();
-    const elapsed = (ctx.currentTime - this.startCtxTime) * this.playbackRate;
-    return Math.min(this.duration, this.pauseOffset + elapsed);
+    const latency = (ctx.outputLatency || 0) + (ctx.baseLatency || 0);
+    const elapsed = Math.max(0, (ctx.currentTime - this.startCtxTime - latency) * this.playbackRate);
+    return Math.max(0, Math.min(this.duration, this.pauseOffset + elapsed));
   }
 
   private stopSource(): void {

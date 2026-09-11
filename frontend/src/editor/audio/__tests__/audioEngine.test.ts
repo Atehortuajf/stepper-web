@@ -124,4 +124,129 @@ describe('AudioEngine & WAV Encoder', () => {
       });
     }).not.toThrow();
   });
+
+  it('setAudioBuffer completes in < 50ms for a 180s track with deferred spectrogram', () => {
+    const engine = new AudioEngine();
+    const sr = 44100;
+    const duration = 180;
+    const totalSamples = sr * duration;
+    const left = new Float32Array(totalSamples);
+    const right = new Float32Array(totalSamples);
+    const mockBuffer = {
+      numberOfChannels: 2,
+      sampleRate: sr,
+      duration,
+      length: totalSamples,
+      getChannelData: (c: number) => (c === 0 ? left : right),
+    } as unknown as AudioBuffer;
+
+    const t0 = performance.now();
+    engine.setAudioBuffer(mockBuffer);
+    const elapsed = performance.now() - t0;
+
+    expect(elapsed).toBeLessThan(50);
+    expect(engine.duration).toBe(180);
+    expect(engine.spectrogram).toBeNull();
+    expect(engine.peakPyramid).not.toBeNull();
+  });
+
+  it('computes spectrogram on demand using Radix-2 Cooley-Tukey FFT', () => {
+    const engine = new AudioEngine();
+    const sr = 44100;
+    const duration = 1.0;
+    const totalSamples = sr * duration;
+    const left = new Float32Array(totalSamples);
+    for (let i = 0; i < totalSamples; i++) {
+      left[i] = Math.sin((2 * Math.PI * 440 * i) / sr);
+    }
+    const mockBuffer = {
+      numberOfChannels: 1,
+      sampleRate: sr,
+      duration,
+      length: totalSamples,
+      getChannelData: () => left,
+    } as unknown as AudioBuffer;
+
+    engine.setAudioBuffer(mockBuffer);
+    expect(engine.spectrogram).toBeNull();
+
+    const spec = engine.buildSpectrogram();
+    expect(spec).not.toBeNull();
+    expect(spec?.freqBins).toBe(256);
+    expect(spec?.fftSize).toBe(512);
+    expect(spec?.hopSize).toBe(256);
+    expect(spec?.timeBins).toBeGreaterThan(0);
+    expect(spec?.magnitudes.length).toBe(spec!.timeBins * 256);
+    expect(engine.spectrogram).toBe(spec);
+  });
+
+  it('getCurrentTime accounts for startCtxTime and hardware latency compensation', () => {
+    const engine = new AudioEngine();
+    engine.duration = 60.0;
+
+    // Paused state returns pauseOffset
+    (engine as any).pauseOffset = 15.0;
+    (engine as any).isPlaying = false;
+    expect(engine.getCurrentTime()).toBe(15.0);
+
+    // Mock playing state with AudioContext having outputLatency and baseLatency
+    const mockCtx = {
+      currentTime: 10.0,
+      outputLatency: 0.025,
+      baseLatency: 0.015,
+      state: 'running',
+    };
+    (engine as any).ctx = mockCtx;
+    (engine as any).isPlaying = true;
+    (engine as any).startCtxTime = 5.0;
+    (engine as any).playbackRate = 1.0;
+    (engine as any).pauseOffset = 0.0;
+
+    // elapsed = Math.max(0, 10.0 - 5.0 - (0.025 + 0.015)) * 1.0 = 4.960
+    expect(engine.getCurrentTime()).toBeCloseTo(4.96, 2);
+  });
+
+  it('rapid play(), seek(), pause() transitions execute cleanly', () => {
+    const engine = new AudioEngine();
+    const dummyBuffer = {
+      numberOfChannels: 1,
+      sampleRate: 44100,
+      duration: 30.0,
+      length: 44100 * 30,
+      getChannelData: () => new Float32Array(44100 * 30),
+    } as unknown as AudioBuffer;
+    engine.setAudioBuffer(dummyBuffer);
+
+    // Mock AudioContext methods
+    const mockSource = {
+      buffer: null,
+      playbackRate: { value: 1.0 },
+      connect: () => {},
+      start: () => {},
+      stop: () => {},
+      disconnect: () => {},
+    };
+    const mockCtx = {
+      currentTime: 0.0,
+      state: 'running',
+      resume: async () => {},
+      createBufferSource: () => ({ ...mockSource }),
+      createGain: () => ({ connect: () => {}, gain: { value: 1.0 } }),
+      destination: {},
+    };
+    (engine as any).ctx = mockCtx;
+    (engine as any).gainNode = { connect: () => {}, gain: { value: 1.0 } };
+
+    expect(() => {
+      engine.play(0);
+      engine.seek(5.0);
+      engine.seek(10.0);
+      engine.pause();
+      engine.seek(15.0);
+      engine.play();
+      engine.stop();
+    }).not.toThrow();
+
+    expect(engine.isPlaying).toBe(false);
+  });
 });
