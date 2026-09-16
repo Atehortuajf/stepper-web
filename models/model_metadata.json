@@ -1,0 +1,418 @@
+{
+  "schema_version": 2,
+  "model_id": "stepper-meter-704fa7775b3a",
+  "checkpoint_sha256": "704fa7775b3a0cdee1dba0af08d675fc36e18a2d5d213d56d0ad44188393e6ec",
+  "checkpoint_epoch": 12,
+  "checkpoint_epoch_zero_based": 11,
+  "exporter_sha256": "565f50be5d127837003e03d3936641a205183ef7cc6e9cb3d8c6e21e7a8c6f1b",
+  "conditioning": {
+    "mode": "meter",
+    "input_name": "meter",
+    "dtype": "int64",
+    "null_value": 0,
+    "minimum": 1,
+    "category_role": "metadata_only"
+  },
+  "cfg": {
+    "placement": 1.8,
+    "decoder": 1.5
+  },
+  "decoder_window": 64,
+  "core_commit": "19ec309db95628c2e881c7c150bf51b881d2ad20",
+  "files": {
+    "stepper_placement.onnx": {
+      "sha256": "b1c3f0ef6d6338c143a4f41dfb0da716859b4ef84f6af5b5c4913d77f3be873f",
+      "bytes": 19686927
+    },
+    "stepper_decoder.onnx": {
+      "sha256": "b0f693e8e1f1c1e9d71d615e7ee2b49d84ab4f0d953d395778cd80d997bccad6",
+      "bytes": 14637032
+    }
+  },
+  "parity": {
+    "verified": true,
+    "tolerance": 1e-05,
+    "cases": [
+      {
+        "stage": "placement",
+        "beats": 1,
+        "condition": 0,
+        "max_errors": [
+          2.384185791015625e-07,
+          3.4570693969726562e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 1,
+        "condition": 1,
+        "max_errors": [
+          9.238719940185547e-07,
+          2.1010637283325195e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 1,
+        "condition": 8,
+        "max_errors": [
+          2.682209014892578e-07,
+          2.6226043701171875e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 1,
+        "condition": 15,
+        "max_errors": [
+          8.707866072654724e-08,
+          2.592802047729492e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 1,
+        "condition": 25,
+        "max_errors": [
+          8.046627044677734e-07,
+          2.205371856689453e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 8,
+        "condition": 0,
+        "max_errors": [
+          6.556510925292969e-07,
+          3.933906555175781e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 8,
+        "condition": 1,
+        "max_errors": [
+          8.046627044677734e-07,
+          2.86102294921875e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 8,
+        "condition": 8,
+        "max_errors": [
+          5.960464477539062e-07,
+          4.410743713378906e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 8,
+        "condition": 15,
+        "max_errors": [
+          1.210719347000122e-07,
+          3.3676624298095703e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 8,
+        "condition": 25,
+        "max_errors": [
+          9.5367431640625e-07,
+          3.1739473342895508e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 32,
+        "condition": 0,
+        "max_errors": [
+          1.7881393432617188e-07,
+          4.112720489501953e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 32,
+        "condition": 1,
+        "max_errors": [
+          1.2814998626708984e-06,
+          3.0994415283203125e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 32,
+        "condition": 8,
+        "max_errors": [
+          2.421438694000244e-07,
+          4.827976226806641e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 32,
+        "condition": 15,
+        "max_errors": [
+          2.384185791015625e-07,
+          3.427267074584961e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 32,
+        "condition": 25,
+        "max_errors": [
+          1.3113021850585938e-06,
+          3.874301910400391e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 64,
+        "condition": 0,
+        "max_errors": [
+          5.662441253662109e-07,
+          6.9141387939453125e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 64,
+        "condition": 1,
+        "max_errors": [
+          9.238719940185547e-07,
+          6.4373016357421875e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 64,
+        "condition": 8,
+        "max_errors": [
+          1.9371509552001953e-07,
+          5.245208740234375e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 64,
+        "condition": 15,
+        "max_errors": [
+          3.650784492492676e-07,
+          6.198883056640625e-06
+        ]
+      },
+      {
+        "stage": "placement",
+        "beats": 64,
+        "condition": 25,
+        "max_errors": [
+          2.175569534301758e-06,
+          5.4836273193359375e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 1,
+        "window": 64,
+        "condition": 0,
+        "max_errors": [
+          4.291534423828125e-06,
+          2.86102294921875e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 1,
+        "window": 64,
+        "condition": 1,
+        "max_errors": [
+          7.152557373046875e-06,
+          2.6226043701171875e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 1,
+        "window": 64,
+        "condition": 8,
+        "max_errors": [
+          5.9604644775390625e-06,
+          3.337860107421875e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 1,
+        "window": 64,
+        "condition": 15,
+        "max_errors": [
+          7.62939453125e-06,
+          2.6226043701171875e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 1,
+        "window": 64,
+        "condition": 25,
+        "max_errors": [
+          6.9141387939453125e-06,
+          4.291534423828125e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 8,
+        "window": 64,
+        "condition": 0,
+        "max_errors": [
+          6.67572021484375e-06,
+          4.76837158203125e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 8,
+        "window": 64,
+        "condition": 1,
+        "max_errors": [
+          6.079673767089844e-06,
+          4.5299530029296875e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 8,
+        "window": 64,
+        "condition": 8,
+        "max_errors": [
+          9.179115295410156e-06,
+          6.67572021484375e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 8,
+        "window": 64,
+        "condition": 15,
+        "max_errors": [
+          7.62939453125e-06,
+          4.76837158203125e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 8,
+        "window": 64,
+        "condition": 25,
+        "max_errors": [
+          8.58306884765625e-06,
+          7.62939453125e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 32,
+        "window": 64,
+        "condition": 0,
+        "max_errors": [
+          6.67572021484375e-06,
+          6.67572021484375e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 32,
+        "window": 64,
+        "condition": 1,
+        "max_errors": [
+          6.67572021484375e-06,
+          5.245208740234375e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 32,
+        "window": 64,
+        "condition": 8,
+        "max_errors": [
+          7.62939453125e-06,
+          6.67572021484375e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 32,
+        "window": 64,
+        "condition": 15,
+        "max_errors": [
+          7.867813110351562e-06,
+          7.867813110351562e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 32,
+        "window": 64,
+        "condition": 25,
+        "max_errors": [
+          7.62939453125e-06,
+          7.62939453125e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 64,
+        "window": 64,
+        "condition": 0,
+        "max_errors": [
+          8.58306884765625e-06,
+          8.58306884765625e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 64,
+        "window": 64,
+        "condition": 1,
+        "max_errors": [
+          7.62939453125e-06,
+          7.62939453125e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 64,
+        "window": 64,
+        "condition": 8,
+        "max_errors": [
+          7.152557373046875e-06,
+          7.152557373046875e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 64,
+        "window": 64,
+        "condition": 15,
+        "max_errors": [
+          9.5367431640625e-06,
+          9.5367431640625e-06
+        ]
+      },
+      {
+        "stage": "decoder",
+        "active_length": 64,
+        "window": 64,
+        "condition": 25,
+        "max_errors": [
+          7.152557373046875e-06,
+          7.152557373046875e-06
+        ]
+      }
+    ]
+  }
+}
