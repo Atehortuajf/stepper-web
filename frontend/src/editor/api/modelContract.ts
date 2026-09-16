@@ -20,6 +20,12 @@ export function validateModelMetadata(value: unknown): void {
   }
 }
 
+export function versionedModelUrl(url: string, name: keyof typeof metadata.files): string {
+  const versioned = new URL(url);
+  versioned.searchParams.set('sha256', metadata.files[name].sha256);
+  return versioned.href;
+}
+
 let manifestPromise: Promise<void> | null = null;
 export async function loadVerifiedModel(url: string, name: keyof typeof metadata.files): Promise<string | Uint8Array> {
   validateModelMetadata(metadata);
@@ -31,7 +37,7 @@ export async function loadVerifiedModel(url: string, name: keyof typeof metadata
     validateModelMetadata(await response.json());
   });
   await manifestPromise;
-  const response = await fetch(url);
+  const response = await fetch(versionedModelUrl(url, name));
   if (!response.ok) throw new Error(`Cannot load model: ${name}`);
   const bytes = await response.arrayBuffer();
   const digest = await crypto.subtle.digest('SHA-256', bytes);

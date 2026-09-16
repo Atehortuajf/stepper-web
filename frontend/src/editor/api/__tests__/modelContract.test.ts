@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { MODEL_METADATA, validateModelMetadata } from '../modelContract';
+import { MODEL_METADATA, validateModelMetadata, versionedModelUrl } from '../modelContract';
 import { WasmInferenceEngine } from '../wasmInference';
 import { ClientFootStateMachine, CHORD_TO_ID } from '../fsmMask';
 
@@ -15,6 +15,12 @@ describe('numeric-meter model contract', () => {
       expect(bytes.byteLength).toBe(info.bytes);
     }
     expect(MODEL_METADATA.parity.cases.length).toBe(40);
+  });
+
+  it('versions graph requests so returning visitors do not reuse old cached weights', () => {
+    const url = new URL(versionedModelUrl('https://example.test/stepper-web/models/stepper_placement.onnx', 'stepper_placement.onnx'));
+    expect(url.searchParams.get('sha256')).toBe(MODEL_METADATA.files['stepper_placement.onnx'].sha256);
+    expect(url.pathname).toBe('/stepper-web/models/stepper_placement.onnx');
   });
 
   it('rejects stale or categorical manifests before initializing inference', () => {

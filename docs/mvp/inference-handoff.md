@@ -1,5 +1,7 @@
 # Browser/backend inference consistency handoff
 
+**2026-09-16 update:** numeric-meter conditioning replaces the historical normalization described below. Use explicit `meter` and optional metadata-only `category`; see [the current model contract](NUMERIC_MODEL.md).
+
 ## Implemented
 
 - Browser and Python feature extraction use the trained front-end constants: 44.1 kHz, 1024-point FFT, 128 Slaney Mel bands, and 20–16,000 Hz frequency bounds.
