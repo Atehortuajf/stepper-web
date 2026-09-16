@@ -1,5 +1,7 @@
 # MVP implementation status
 
+September16 overnight: schema3 guidance graphs and both browser runtimes now distinguish conditioned/null acoustic features, retaining the epoch12 checkpoint. Frontend214 tests,40 parity cases (<2e-5), production build and real local generate/accept/undo passed. See `NUMERIC_MODEL.md` for the contract and `DEPLOYMENT.md` for live publishing status; earlier test counts below are historical.
+
 Current numeric-meter release: see [model contract and verification](NUMERIC_MODEL.md). The 2026-09-16 release replaces the historical ONNX weights with the corrected best epoch-12 checkpoint. The engineering history below describes the earlier P0 pass.
 
 Checkpoint: 2026-09-11. Branch: `mvp/p0-stabilization-2026-09-11`. The editor was subsequently deployed and verified on GitHub Pages; see [deployment record](DEPLOYMENT.md). Future pushes to this source branch do not automatically deploy.

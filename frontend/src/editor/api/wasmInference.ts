@@ -16,6 +16,7 @@ import {
 } from './fsmMask';
 import { generationCondition, pickPlacementPeaks } from './stepperApi';
 import type { GenerateRequest, GenerateResponse, Placement } from './stepperApi';
+import { prepareDecoderAcousticBuffers } from './cfgAcoustics';
 
 export type WasmModelStatus = 'unloaded' | 'loading' | 'ready' | 'error';
 export type WasmExecutionProvider = 'webgpu' | 'wasm';
@@ -329,6 +330,7 @@ export class WasmInferenceEngine {
 
     const probsData = pResults.probs.data as Float32Array;
     const acousticMapData = pResults.acoustic_map.data as Float32Array;
+    const nullAcousticMapData = pResults.null_acoustic_map.data as Float32Array;
     const totalTicks = numBeats * 48;
 
     // 3. Peak picking: match the backend's 3-tick local maxima and retain dense events.
@@ -364,7 +366,14 @@ export class WasmInferenceEngine {
       const chunkSize = chunkEnd - chunkStart;
 
       const tokensBuf = new BigInt64Array(maxLen);
-      const hBuf = new Float32Array(maxLen * 256);
+      const { conditioned: hBuf, nullConditioned: hNullBuf } = prepareDecoderAcousticBuffers(
+        acousticMapData,
+        nullAcousticMapData,
+        placedTicks,
+        chunkStart,
+        chunkSize,
+        maxLen,
+      );
       const deltaBuf = new Float32Array(maxLen);
       const phaseBuf = new BigInt64Array(maxLen);
       const measBuf = new BigInt64Array(maxLen);
@@ -380,11 +389,6 @@ export class WasmInferenceEngine {
         deltaBuf[i] = delta;
         phaseBuf[i] = BigInt(tick % 48);
         measBuf[i] = BigInt(Math.floor(beat) % 4);
-
-        const mapOffset = tick * 256;
-        for (let d = 0; d < 256; d++) {
-          hBuf[i * 256 + d] = acousticMapData[mapOffset + d];
-        }
       }
 
       for (let stepIdx = 0; stepIdx < chunkSize; stepIdx++) {
@@ -403,6 +407,7 @@ export class WasmInferenceEngine {
         const decoderInputs = {
           step_tokens: new ort.Tensor('int64', tokensBuf, [1, maxLen]),
           acoustic_embeddings: new ort.Tensor('float32', hBuf, [1, maxLen, 256]),
+          null_acoustic_embeddings: new ort.Tensor('float32', hNullBuf, [1, maxLen, 256]),
           step_delta_beats: new ort.Tensor('float32', deltaBuf, [1, maxLen]),
           step_beat_phases: new ort.Tensor('int64', phaseBuf, [1, maxLen]),
           step_measure_phases: new ort.Tensor('int64', measBuf, [1, maxLen]),

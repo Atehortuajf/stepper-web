@@ -3,10 +3,12 @@
 The editor bundles the new best corrected-training checkpoint, selected by validation loss at epoch **12** (checkpoint epoch index 11). No training was performed during this web integration.
 
 - Checkpoint SHA-256: `704fa7775b3a0cdee1dba0af08d675fc36e18a2d5d213d56d0ad44188393e6ec`.
-- Model ID: `stepper-meter-704fa7775b3a`.
+- Current graph model ID: `stepper-meter-704fa7775b3a-null-acoustic` (same checkpoint, corrected guidance interfaces).
 - Portable identity and numerical results: `frontend/public/models/model_metadata.json` (deployed at `models/model_metadata.json`). Includes schema version, checkpoint identity, one-based and zero-based epoch, exporter source checksum, core commit, graph checksums/sizes, CFG scales, and every parity case.
 
 ## Public generation contract
+
+The overnight revision uses metadata schema3. Placement exports `null_acoustic_map` alongside `acoustic_map`; decoding takes `null_acoustic_embeddings` as well as `acoustic_embeddings`. The null decoder pass consumes null-conditioned placement features, matching shared conditioning dropout in training. Both worker and main-thread runtimes route the two feature maps separately. This is an inference contract correction, not a newly trained checkpoint or a demonstrated quality improvement.
 
 REST, WebSocket and browser callers supply `meter: 8`, with optional `category: "Medium"`, `"Hard"` or `"Challenge"`. The meter is a positive integer; missing, zero, fractional, string or category-only inputs are rejected. Medium 8, Hard 8 and Challenge 8 feed identical **int64 `[8]`** tensors to both ONNX graphs. The ONNX input is explicitly named `meter`, so old category-based graphs cannot silently accept the new contract. Null CFG conditioning is `[0]` with the zero technique vector; CFG scales are 1.8 placement and 1.5 decoder.
 
@@ -38,6 +40,8 @@ STEPPER_WEIGHTS_PATH=../Stepper/runs/meter-2026-09-16/checkpoints/best_model.pt 
 The backend environment also needs `backend/requirements.txt`. TestClient requires local socket access. Without an explicit checkpoint, test fixtures construct a labelled synthetic numeric model; latency depends on that fixture's predictions and is not evidence for production performance.
 
 ## Verification
+
+Current overnight revision:40/40 CPU PyTorch/ONNX cases passed below an explicit2e-5 absolute tolerance (one expanded null-map case was1.0967e-5); frontend214 tests and production build passed. Actual local browser generation, acceptance and undo succeeded without console errors. Graph interfaces, hashes and the model ID changed together. The evidence below records the earlier schema2 release and should not be interpreted as a fresh benchmark of schema3.
 
 - 40 CPU PyTorch/ONNX Runtime comparisons passed at absolute maximum error below `1e-5`: placement lengths 1/8/32/64 beats × conditions 0/1/8/15/25; decoder active histories 1/8/32/64 × those conditions in fixed 64-token browser windows. Decoder comparisons also check the unpadded PyTorch prefix against the padded ONNX prefix.
 - Frontend: **213 tests passed**, including real ONNX inference with identical placements for Medium 8, Hard 8 and Challenge 8 under the same sampling draw; manifest/file checksums; physical FSM gates; and proposal metadata/undo regression. Production TypeScript/Vite build passed.

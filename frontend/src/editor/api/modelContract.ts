@@ -6,9 +6,10 @@ export const MODEL_METADATA = metadata;
 
 export function validateModelMetadata(value: unknown): void {
   const actual = value as typeof metadata;
-  if (actual?.schema_version !== 2 || actual?.conditioning?.mode !== 'meter' ||
+  if (actual?.schema_version !== 3 || actual?.conditioning?.mode !== 'meter' ||
       actual?.conditioning?.input_name !== 'meter' || actual?.conditioning?.null_value !== 0 ||
       actual?.conditioning?.category_role !== 'metadata_only' ||
+      actual?.cfg?.acoustic_conditioning !== 'separate_conditioned_and_null' ||
       actual?.checkpoint_sha256 !== metadata.checkpoint_sha256 ||
       actual?.model_id !== metadata.model_id || !actual?.parity?.verified) {
     throw new Error('Model metadata does not match this numeric-meter application build');

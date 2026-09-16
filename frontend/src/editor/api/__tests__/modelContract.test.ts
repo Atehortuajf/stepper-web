@@ -8,7 +8,10 @@ import { ClientFootStateMachine, CHORD_TO_ID } from '../fsmMask';
 describe('numeric-meter model contract', () => {
   it('pins both exported model files to the verified checkpoint manifest', () => {
     validateModelMetadata(MODEL_METADATA);
+    expect(MODEL_METADATA.schema_version).toBe(3);
+    expect(MODEL_METADATA.model_id).toBe('stepper-meter-704fa7775b3a-null-acoustic');
     expect(MODEL_METADATA.checkpoint_sha256).toBe('704fa7775b3a0cdee1dba0af08d675fc36e18a2d5d213d56d0ad44188393e6ec');
+    expect(MODEL_METADATA.cfg.acoustic_conditioning).toBe('separate_conditioned_and_null');
     for (const [name, info] of Object.entries(MODEL_METADATA.files)) {
       const bytes = readFileSync(`public/models/${name}`);
       expect(createHash('sha256').update(bytes).digest('hex')).toBe(info.sha256);
