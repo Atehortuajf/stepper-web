@@ -1,5 +1,5 @@
 {
-  "source_commit": "b97b3bc8eb2dd207b05d7cbf2a1e329d89e30a33",
+  "source_commit": "7b608f8be4461ca8b07dc693941491749bf9436d",
   "source_branch": "mvp/p0-stabilization-2026-09-11",
   "model_status": "Corrected numeric-meter best checkpoint, selected by validation loss at epoch 12",
   "model_id": "stepper-meter-704fa7775b3a",
@@ -16,9 +16,9 @@
     }
   },
   "validation": {
-    "frontend_tests": 212,
+    "frontend_tests": 213,
     "backend_tests_with_best_checkpoint": 44,
     "onnx_parity_cases": 40,
-    "browser_smoke": "worker-wasm generation, accept and undo passed locally"
+    "browser_smoke": "worker-wasm generation, accept and undo passed locally; public generation passed before cache-query follow-up"
   }
 }

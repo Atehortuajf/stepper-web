@@ -1,1 +1,0 @@
-import"./index-1LwVIEsm.js";import{wasmInferenceEngine as e}from"./wasmInference-BP8-jtv_.js";export{e as wasmInferenceEngine};
