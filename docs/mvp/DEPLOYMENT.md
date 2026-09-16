@@ -1,5 +1,18 @@
 # GitHub Pages deployment — 2026-09-16
 
+## Current verified null-acoustic release
+
+The current public release at **https://atehortuajf.github.io/stepper-web/** was built from source commit `ce1a4d8104ce44a05d041218aef35f598c84525e` and published as Pages commit `d9cf25ff6c85bddef650d8228f3481e087486e82`. The [`pages-build-deployment` run](https://github.com/Atehortuajf/stepper-web/actions/runs/35069494343) completed successfully.
+
+The downloaded public `deployment.json` identifies that source commit, model ID `stepper-meter-704fa7775b3a-null-acoustic`, schema 3 and checkpoint SHA256 `704fa7775b3a0cdee1dba0af08d675fc36e18a2d5d213d56d0ad44188393e6ec`. Public model metadata is byte-identical to `frontend/public/models/model_metadata.json` and declares separate conditioned/null acoustic features for decoder CFG. Both public ONNX files are byte-identical to the local release artifacts and the Pages commit:
+
+- Placement: `43b0477c6bc55033dd86ebe39efc14f680f597afc38dba899c555e0c3965ec7a`, 19,686,948 bytes.
+- Decoder: `7d9424dc4cdb012f6741868251157e620d64fea31a8197afe61db5080215fc4e`, 14,639,653 bytes.
+
+The compact machine-readable proof is [null-acoustic-live-proof.json](null-acoustic-live-proof.json). It supplements rather than replaces [numeric-model-live-proof.json](numeric-model-live-proof.json), which remains the historical proof for the preceding same-day release and browser smoke. This verification establishes deployed artifact identity; browser behavior and generation quality are separate checks.
+
+## Earlier same-day numeric-model release
+
 The corrected numeric-meter best epoch-12 checkpoint is live at **https://atehortuajf.github.io/stepper-web/**.
 
 - Application source: `7b608f8be4461ca8b07dc693941491749bf9436d` on `mvp/p0-stabilization-2026-09-11`.

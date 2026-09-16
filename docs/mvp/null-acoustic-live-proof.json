@@ -1,0 +1,65 @@
+{
+  "verified_at_utc": "2026-09-16T07:46:01Z",
+  "public_base_url": "https://atehortuajf.github.io/stepper-web/",
+  "source_commit": "ce1a4d8104ce44a05d041218aef35f598c84525e",
+  "source_branch": "mvp/p0-stabilization-2026-09-11",
+  "pages_commit": "d9cf25ff6c85bddef650d8228f3481e087486e82",
+  "pages_workflow": {
+    "run_id": 35069494343,
+    "url": "https://github.com/Atehortuajf/stepper-web/actions/runs/35069494343",
+    "name": "pages-build-deployment",
+    "status": "completed",
+    "conclusion": "success",
+    "head_sha": "d9cf25ff6c85bddef650d8228f3481e087486e82",
+    "created_at": "2026-09-16T07:37:41Z",
+    "updated_at": "2026-09-16T07:38:15Z"
+  },
+  "deployment": {
+    "url": "https://atehortuajf.github.io/stepper-web/deployment.json",
+    "sha256": "59861ecded60694ed862f63305cc08aa98345d81fdcb042cb37daf0e9fb14d72",
+    "bytes": 440,
+    "source_commit": "ce1a4d8104ce44a05d041218aef35f598c84525e",
+    "model_id": "stepper-meter-704fa7775b3a-null-acoustic",
+    "checkpoint_sha256": "704fa7775b3a0cdee1dba0af08d675fc36e18a2d5d213d56d0ad44188393e6ec",
+    "model_schema_version": 3,
+    "matches_pages_commit": true
+  },
+  "model_metadata": {
+    "url": "https://atehortuajf.github.io/stepper-web/models/model_metadata.json",
+    "sha256": "493d6a2d8ab506a920c4e3c0d95e1dbd15b193932682981b914633012fbc1e05",
+    "bytes": 9937,
+    "public_matches_local": true,
+    "public_matches_pages_commit": true,
+    "schema_version": 3,
+    "model_id": "stepper-meter-704fa7775b3a-null-acoustic",
+    "checkpoint_sha256": "704fa7775b3a0cdee1dba0af08d675fc36e18a2d5d213d56d0ad44188393e6ec",
+    "checkpoint_epoch": 12,
+    "conditioning_mode": "meter",
+    "cfg": {
+      "placement": 1.8,
+      "decoder": 1.5,
+      "acoustic_conditioning": "separate_conditioned_and_null"
+    }
+  },
+  "assets": {
+    "stepper_placement.onnx": {
+      "url": "https://atehortuajf.github.io/stepper-web/models/stepper_placement.onnx",
+      "sha256": "43b0477c6bc55033dd86ebe39efc14f680f597afc38dba899c555e0c3965ec7a",
+      "bytes": 19686948,
+      "manifest_matches": true,
+      "public_matches_local": true,
+      "public_matches_pages_commit": true
+    },
+    "stepper_decoder.onnx": {
+      "url": "https://atehortuajf.github.io/stepper-web/models/stepper_decoder.onnx",
+      "sha256": "7d9424dc4cdb012f6741868251157e620d64fea31a8197afe61db5080215fc4e",
+      "bytes": 14639653,
+      "manifest_matches": true,
+      "public_matches_local": true,
+      "public_matches_pages_commit": true
+    }
+  },
+  "method": "Downloaded the public deployment record, model metadata and both ONNX graphs; compared SHA256 and byte size with frontend/public and the gh-pages commit; checked graph hashes against the downloaded metadata; queried the supplied Pages workflow run.",
+  "scope": "Release identity and publication proof only. Browser runtime behavior and generation quality are outside this check.",
+  "verified": true
+}
