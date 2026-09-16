@@ -1,1 +1,0 @@
-import"./index-B_JrrN6k.js";import{wasmInferenceEngine as e}from"./wasmInference-bQ3sBoTE.js";export{e as wasmInferenceEngine};

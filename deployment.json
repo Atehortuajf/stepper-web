@@ -1,24 +1,9 @@
 {
-  "source_commit": "7b608f8be4461ca8b07dc693941491749bf9436d",
+  "source_commit": "ce1a4d8104ce44a05d041218aef35f598c84525e",
   "source_branch": "mvp/p0-stabilization-2026-09-11",
-  "model_status": "Corrected numeric-meter best checkpoint, selected by validation loss at epoch 12",
-  "model_id": "stepper-meter-704fa7775b3a",
+  "built_at": "2026-09-16T07:37:34.630260+00:00",
+  "model_id": "stepper-meter-704fa7775b3a-null-acoustic",
   "checkpoint_sha256": "704fa7775b3a0cdee1dba0af08d675fc36e18a2d5d213d56d0ad44188393e6ec",
-  "model_manifest_sha256": "2d77156c7d2887e9579b7e8d79f210c5be8097c4922998901986f1c4c1efe000",
-  "model_files": {
-    "stepper_placement.onnx": {
-      "sha256": "b1c3f0ef6d6338c143a4f41dfb0da716859b4ef84f6af5b5c4913d77f3be873f",
-      "bytes": 19686927
-    },
-    "stepper_decoder.onnx": {
-      "sha256": "b0f693e8e1f1c1e9d71d615e7ee2b49d84ab4f0d953d395778cd80d997bccad6",
-      "bytes": 14637032
-    }
-  },
-  "validation": {
-    "frontend_tests": 213,
-    "backend_tests_with_best_checkpoint": 44,
-    "onnx_parity_cases": 40,
-    "browser_smoke": "worker-wasm generation, accept and undo passed locally; public generation passed before cache-query follow-up"
-  }
+  "model_schema_version": 3,
+  "note": "Corrected null-acoustic guidance; unchanged epoch-12 numeric-meter checkpoint."
 }
