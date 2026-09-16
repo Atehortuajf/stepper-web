@@ -295,15 +295,15 @@ export function describeTechVector(
  */
 export interface DifficultyTierMeta {
   tier: number; // 0-4
-  name: 'Novice' | 'Easy' | 'Medium' | 'Hard' | 'Expert';
+  name: 'Beginner' | 'Easy' | 'Medium' | 'Hard' | 'Challenge';
   defaultMeter: number;
   color: string;
 }
 
 export const DIFFICULTY_TIERS: DifficultyTierMeta[] = [
-  { tier: 0, name: 'Novice', defaultMeter: 3, color: '#00e5ff' },
+  { tier: 0, name: 'Beginner', defaultMeter: 3, color: '#00e5ff' },
   { tier: 1, name: 'Easy', defaultMeter: 6, color: '#00e676' },
   { tier: 2, name: 'Medium', defaultMeter: 9, color: '#ffd000' },
   { tier: 3, name: 'Hard', defaultMeter: 12, color: '#ff7b00' },
-  { tier: 4, name: 'Expert', defaultMeter: 15, color: '#ff2a55' },
+  { tier: 4, name: 'Challenge', defaultMeter: 15, color: '#ff2a55' },
 ];

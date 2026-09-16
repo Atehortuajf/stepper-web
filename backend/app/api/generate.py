@@ -88,7 +88,7 @@ async def generate_chart(request: GenerateRequest) -> GenerateResponse:
     """
     start_time = time.perf_counter()
 
-    diff_id, diff_str = normalize_difficulty(request.difficulty)
+    diff_id, diff_str = normalize_difficulty(request.category)
     total_beats = int(max(1, round(request.num_beats)))
 
     # Extract audio features (2, total_beats, 48, 128)
@@ -110,7 +110,8 @@ async def generate_chart(request: GenerateRequest) -> GenerateResponse:
     try:
         placements_data, model_used = model_service.generate(
             audio_features=feats,
-            difficulty=diff_id,
+            meter=request.meter,
+            category=request.category,
             tech_vector=request.tech_vector,
             bpm=request.bpm,
             offset=request.offset,
@@ -140,8 +141,12 @@ async def generate_chart(request: GenerateRequest) -> GenerateResponse:
         placements=placements,
         latency_ms=round(elapsed_ms, 2),
         difficulty_id=diff_id,
-        difficulty_str=diff_str,
+        difficulty_str=request.category,
         model_used=model_used,
+        meter=request.meter,
+        category=request.category,
+        model_id=model_service.model_id if model_used != "fallback" else None,
+        checkpoint_sha256=model_service.checkpoint_sha256 if model_used != "fallback" else None,
     )
 
 
@@ -175,7 +180,7 @@ async def websocket_generate(websocket: WebSocket) -> None:
                 continue
 
             start_time = time.perf_counter()
-            diff_id, diff_str = normalize_difficulty(req.difficulty)
+            diff_id, diff_str = normalize_difficulty(req.category)
             chunk_size_beats = float(data.get("chunk_size_beats", 4.0))  # Default 1 measure = 4 beats
             total_beats = int(max(1, round(req.num_beats)))
 
@@ -217,7 +222,8 @@ async def websocket_generate(websocket: WebSocket) -> None:
             try:
                 placements_data, model_used = model_service.generate(
                     audio_features=feats,
-                    difficulty=diff_id,
+                    meter=req.meter,
+                    category=req.category,
                     tech_vector=req.tech_vector,
                     bpm=req.bpm,
                     offset=req.offset,
@@ -297,6 +303,10 @@ async def websocket_generate(websocket: WebSocket) -> None:
                     progress=1.0,
                     placements=all_placements,
                     latency_ms=round(total_elapsed, 2),
+                    meter=req.meter,
+                    category=req.category,
+                    model_id=model_service.model_id if model_used != "fallback" else None,
+                    checkpoint_sha256=model_service.checkpoint_sha256 if model_used != "fallback" else None,
                     message=f"Generation finished using {model_used} model.",
                 ).model_dump()
             )

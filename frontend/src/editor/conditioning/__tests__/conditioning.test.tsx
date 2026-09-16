@@ -158,11 +158,11 @@ describe('16-D Technique Conditioning Taxonomy & Functions', () => {
 
   it('defines 5 standard difficulty tiers with corresponding default meters', () => {
     expect(DIFFICULTY_TIERS.length).toBe(5);
-    expect(DIFFICULTY_TIERS[0]).toMatchObject({ tier: 0, name: 'Novice', defaultMeter: 3 });
+    expect(DIFFICULTY_TIERS[0]).toMatchObject({ tier: 0, name: 'Beginner', defaultMeter: 3 });
     expect(DIFFICULTY_TIERS[1]).toMatchObject({ tier: 1, name: 'Easy', defaultMeter: 6 });
     expect(DIFFICULTY_TIERS[2]).toMatchObject({ tier: 2, name: 'Medium', defaultMeter: 9 });
     expect(DIFFICULTY_TIERS[3]).toMatchObject({ tier: 3, name: 'Hard', defaultMeter: 12 });
-    expect(DIFFICULTY_TIERS[4]).toMatchObject({ tier: 4, name: 'Expert', defaultMeter: 15 });
+    expect(DIFFICULTY_TIERS[4]).toMatchObject({ tier: 4, name: 'Challenge', defaultMeter: 15 });
   });
 });
 
@@ -254,7 +254,7 @@ describe('TechConditioningPanel Component', () => {
     );
   });
 
-  it('updates difficulty tier and auto-sets default meter', async () => {
+  it('changes category without changing the numeric model meter', async () => {
     const handleTierChange = vi.fn();
     const handleMeterChange = vi.fn();
 
@@ -272,7 +272,7 @@ describe('TechConditioningPanel Component', () => {
       );
     });
 
-    const expertBtn = container.querySelector<HTMLButtonElement>('[data-testid="tier-btn-expert"]')!;
+    const expertBtn = container.querySelector<HTMLButtonElement>('[data-testid="tier-btn-challenge"]')!;
     expect(expertBtn).not.toBeNull();
 
     await act(async () => {
@@ -280,7 +280,7 @@ describe('TechConditioningPanel Component', () => {
     });
 
     expect(handleTierChange).toHaveBeenCalledWith(4);
-    expect(handleMeterChange).toHaveBeenCalledWith(15);
+    expect(handleMeterChange).not.toHaveBeenCalled();
   });
 });
 

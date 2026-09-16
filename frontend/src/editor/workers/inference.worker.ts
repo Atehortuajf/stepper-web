@@ -6,8 +6,9 @@
  */
 
 import * as ort from 'onnxruntime-web';
+import { MODEL_METADATA, createVerifiedSession } from '../api/modelContract';
 import { ClientAudioFeatureExtractor, resampleMonoWaveform } from '../audio/clientFeatureExtract';
-import { normalizeDifficulty, pickPlacementPeaks } from '../api/stepperApi';
+import { generationCondition, pickPlacementPeaks } from '../api/stepperApi';
 import {
   ClientFootStateMachine,
   ID_TO_CHORD,
@@ -65,8 +66,8 @@ async function initEngine(baseUrl?: string): Promise<boolean> {
         graphOptimizationLevel: 'all',
       };
 
-      placementSession = await ort.InferenceSession.create(placementUrl, sessionOptions);
-      decoderSession = await ort.InferenceSession.create(decoderUrl, sessionOptions);
+      placementSession = await createVerifiedSession(placementUrl, 'stepper_placement.onnx', sessionOptions);
+      decoderSession = await createVerifiedSession(decoderUrl, 'stepper_decoder.onnx', sessionOptions);
       featureExtractor = new ClientAudioFeatureExtractor();
       isInitialized = true;
       return true;
@@ -95,7 +96,8 @@ async function runGeneration(
   const numBeats = Math.max(1, Math.round(req.num_beats ?? 16.0));
   const bpm = req.bpm ?? 140.0;
   const offset = req.offset ?? 0.0;
-  const diffIdx = normalizeDifficulty(req.difficulty);
+  const condition = generationCondition(req);
+  const meter = condition.meter;
   const threshold = req.threshold ?? 0.5;
   const temperature = req.temperature ?? 1.0;
   const useFsm = req.use_fsm ?? true;
@@ -115,7 +117,7 @@ async function runGeneration(
   // 2. Stage 1 PlacementNet
   self.postMessage({ type: 'progress', id, percent: 35, stage: 'Running PlacementNet ONNX' });
   const audioTensor = new ort.Tensor('float32', audioFeatures, [1, 2, numBeats, 48, 128]);
-  const diffTensor = new ort.Tensor('int64', BigInt64Array.from([BigInt(diffIdx)]), [1]);
+  const diffTensor = new ort.Tensor('int64', BigInt64Array.from([BigInt(meter)]), [1]);
 
   const techArr = new Float32Array(16);
   if (req.tech_vector && req.tech_vector.length > 0) {
@@ -127,7 +129,7 @@ async function runGeneration(
 
   const pResults = await placementSession!.run({
     audio: audioTensor,
-    difficulty: diffTensor,
+    meter: diffTensor,
     tech_vector: techTensor,
   });
 
@@ -141,18 +143,7 @@ async function runGeneration(
     return pickPlacementPeaks(probsData.subarray(0, totalTicks), th);
   };
 
-  let placedTicks = pickPeaks(threshold);
-
-  // If no peaks found and threshold was not explicitly specified, adaptively lower threshold
-  if (placedTicks.length === 0 && req.threshold === undefined) {
-    let maxP = 0.0;
-    for (let i = 0; i < totalTicks; i++) {
-      if (probsData[i] > maxP) maxP = probsData[i];
-    }
-    if (maxP >= 0.15) {
-      placedTicks = pickPeaks(maxP * 0.75);
-    }
-  }
+  const placedTicks = pickPeaks(threshold);
 
   if (placedTicks.length === 0) {
     const latencyMs = performance.now() - startTime;
@@ -162,8 +153,9 @@ async function runGeneration(
       response: {
         placements: [],
         latency_ms: latencyMs,
-        difficulty_id: diffIdx,
-        difficulty_str: ['Novice', 'Easy', 'Medium', 'Hard', 'Expert'][diffIdx],
+        ...condition,
+        model_id: MODEL_METADATA.model_id,
+        checkpoint_sha256: MODEL_METADATA.checkpoint_sha256,
         model_used: `worker-${provider}`,
       },
     });
@@ -174,7 +166,7 @@ async function runGeneration(
   const maxLen = 64;
   const numPlaced = placedTicks.length;
   const placements: Placement[] = [];
-  const fsm = new ClientFootStateMachine(diffIdx);
+  const fsm = new ClientFootStateMachine(null);
 
   for (let chunkStart = 0; chunkStart < numPlaced; chunkStart += maxLen) {
     const chunkEnd = Math.min(numPlaced, chunkStart + maxLen);
@@ -191,7 +183,7 @@ async function runGeneration(
     for (let i = 0; i < chunkSize; i++) {
       const tick = placedTicks[chunkStart + i];
       const beat = tick / 48.0;
-      const delta = i === 0 && chunkStart === 0 ? 0.0 : beat - prevBeat;
+      const delta = beat - prevBeat;
       prevBeat = beat;
 
       deltaBuf[i] = delta;
@@ -224,7 +216,7 @@ async function runGeneration(
         step_delta_beats: new ort.Tensor('float32', deltaBuf, [1, maxLen]),
         step_beat_phases: new ort.Tensor('int64', phaseBuf, [1, maxLen]),
         step_measure_phases: new ort.Tensor('int64', measBuf, [1, maxLen]),
-        difficulty: diffTensor,
+        meter: diffTensor,
         tech_vector: techTensor,
       };
 
@@ -302,8 +294,9 @@ async function runGeneration(
     response: {
       placements,
       latency_ms: latencyMs,
-      difficulty_id: diffIdx,
-      difficulty_str: ['Novice', 'Easy', 'Medium', 'Hard', 'Expert'][diffIdx],
+      ...condition,
+      model_id: MODEL_METADATA.model_id,
+      checkpoint_sha256: MODEL_METADATA.checkpoint_sha256,
       model_used: `worker-${provider}`,
     },
   });

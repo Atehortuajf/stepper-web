@@ -95,7 +95,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
           <span className="font-bold text-base text-[#FFD000] w-8 text-center">{difficultyMeter}</span>
           <button
             type="button"
-            onClick={() => onChangeDifficultyMeter(Math.min(25, difficultyMeter + 1))}
+            onClick={() => onChangeDifficultyMeter(difficultyMeter + 1)}
             className="w-10 h-10 rounded bg-[#1F2434] hover:bg-[#283048] border border-[#363C52] text-white font-bold flex items-center justify-center text-base"
           >
             +

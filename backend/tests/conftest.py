@@ -25,9 +25,17 @@ from backend.app.core.model_loader import model_service
 
 
 @pytest.fixture(scope="session", autouse=True)
-def initialize_model():
+def initialize_model(tmp_path_factory):
     """Ensure the model service is initialized before tests run."""
+    from backend.scripts.init_weights import export_checkpoint
+    previous = settings.CUSTOM_WEIGHTS_PATH
+    if not previous:
+        path = tmp_path_factory.mktemp("numeric-model") / "synthetic.pt"
+        export_checkpoint(path, fp16=False)
+        settings.CUSTOM_WEIGHTS_PATH = str(path)
     model_service.initialize()
+    yield
+    settings.CUSTOM_WEIGHTS_PATH = previous
 
 
 @pytest.fixture

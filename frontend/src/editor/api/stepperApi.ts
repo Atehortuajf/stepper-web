@@ -9,7 +9,9 @@ import type { NoteRow, HoldNote } from '../engine/types';
 
 export interface GenerateRequest {
   audio_slice?: string | null;
-  difficulty: number | string;
+  /** Positive integer model condition. Category labels never change this value. */
+  meter: number;
+  category?: ChartCategory;
   tech_vector?: number[] | null;
   start_beat?: number;
   num_beats?: number;
@@ -29,23 +31,16 @@ export interface GenerateRequest {
   force_fallback?: boolean;
 }
 
-export function normalizeDifficulty(difficulty: number | string): number {
-  if (typeof difficulty === 'string') {
-    const names: Record<string, number> = {
-      novice: 0, beginner: 0, easy: 1, basic: 1, medium: 2,
-      difficult: 3, hard: 3, expert: 4, challenge: 4, edit: 4,
-    };
-    const cleaned = difficulty.trim().toLowerCase();
-    if (cleaned in names) return names[cleaned];
-    const parsed = Number.parseInt(cleaned, 10);
-    return Number.isFinite(parsed) ? normalizeDifficulty(parsed) : 3;
+export type ChartCategory = 'Beginner' | 'Easy' | 'Medium' | 'Hard' | 'Challenge' | 'Edit';
+export const CHART_CATEGORIES: ChartCategory[] = ['Beginner', 'Easy', 'Medium', 'Hard', 'Challenge', 'Edit'];
+
+export function generationCondition(req: Pick<GenerateRequest, 'meter' | 'category'>) {
+  if (!Number.isSafeInteger(req.meter) || req.meter < 1) {
+    throw new Error('Generation requires an explicit positive integer meter');
   }
-  const meter = Math.trunc(difficulty);
-  if (meter <= 4) return Math.max(0, meter);
-  if (meter <= 6) return 1;
-  if (meter <= 8) return 2;
-  if (meter <= 11) return 3;
-  return 4;
+  const category = req.category ?? 'Hard';
+  if (!CHART_CATEGORIES.includes(category)) throw new Error('Unknown chart category');
+  return { meter: req.meter, category, difficulty_id: CHART_CATEGORIES.indexOf(category), difficulty_str: category };
 }
 
 /** Match the backend model's 3-tick local-maximum rule without a refractory window. */
@@ -71,6 +66,10 @@ export interface Placement {
 export interface GenerateResponse {
   placements: Placement[];
   latency_ms: number;
+  meter?: number;
+  category?: ChartCategory;
+  model_id?: string;
+  checkpoint_sha256?: string;
   difficulty_id: number;
   difficulty_str: string;
   model_used: string;
@@ -274,7 +273,8 @@ export class StepperApiClient {
   private async generateViaBackend(req: GenerateRequest): Promise<GenerateResponse> {
     const payload = {
       audio_slice: req.audio_slice ?? null,
-      difficulty: req.difficulty,
+      meter: generationCondition(req).meter,
+      category: req.category ?? 'Hard',
       tech_vector: req.tech_vector ?? null,
       start_beat: req.start_beat ?? 0.0,
       num_beats: req.num_beats ?? 16.0,

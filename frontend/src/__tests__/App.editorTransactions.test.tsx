@@ -381,4 +381,36 @@ describe('App editor transaction workflows', () => {
     });
     expect(container.querySelector('[data-testid="accept-btn"]')).toBeNull();
   });
+  it('accepts captured meter/category metadata with notes and restores it on undo', async () => {
+    vi.mocked(stepperApi.generate).mockResolvedValueOnce({
+      placements: [{ beat: 1, arrows: '1000', chord_idx: 1, confidence: 0.9 }],
+      latency_ms: 10, difficulty_id: 2, difficulty_str: 'Medium', model_used: 'test', meter: 8, category: 'Medium',
+    });
+    await act(async () => {
+      upload(container.querySelector('#fileInput')!, [
+        { name: 'fixture.sm', text: async () => TWO_CHART_SM },
+        { name: 'expected.ogg', arrayBuffer: async () => new ArrayBuffer(8) },
+      ]);
+      await Promise.resolve(); await Promise.resolve();
+    });
+    const chartButton = () => container.querySelector('[data-testid="chart-btn-0"]')!.textContent;
+    const originalLabel = chartButton();
+    await act(async () => {
+      setInput(container.querySelector<HTMLInputElement>('[data-testid="difficulty-meter-input"]')!, '8');
+      container.querySelector<HTMLButtonElement>('[data-testid="tier-btn-medium"]')!.click();
+    });
+    await act(async () => { container.querySelector<HTMLButtonElement>('[data-testid="generate-btn"]')!.click(); });
+    expect(vi.mocked(stepperApi.generate).mock.lastCall?.[0]).toMatchObject({meter: 8, category: 'Medium'});
+    // Changes after proposal creation must not relabel the proposal on accept.
+    await act(async () => {
+      setInput(container.querySelector<HTMLInputElement>('[data-testid="difficulty-meter-input"]')!, '15');
+      container.querySelector<HTMLButtonElement>('[data-testid="tier-btn-challenge"]')!.click();
+    });
+    await act(async () => { container.querySelector<HTMLButtonElement>('[data-testid="accept-btn"]')!.click(); });
+    expect(chartButton()).toContain('Medium');
+    expect(chartButton()).toContain('8');
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', {key: 'z', code: 'KeyZ', ctrlKey: true, bubbles: true})); });
+    expect(chartButton()).toBe(originalLabel);
+  });
+
 });

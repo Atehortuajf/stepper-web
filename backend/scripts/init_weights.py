@@ -15,7 +15,7 @@ import torch.nn as nn
 
 # Ensure project paths
 BACKEND_DIR = Path(__file__).resolve().parent.parent
-STEPPER_REF_PATH = Path("/Users/ate/Projects/Stepper")
+STEPPER_REF_PATH = BACKEND_DIR.parent.parent / "Stepper"
 if STEPPER_REF_PATH.exists() and str(STEPPER_REF_PATH) not in sys.path:
     sys.path.insert(0, str(STEPPER_REF_PATH))
 
@@ -64,7 +64,8 @@ def export_checkpoint(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     print(f"[init_weights] Instantiating StepperSync model (seed={seed})...")
-    model = StepperSync()
+    torch.manual_seed(seed)
+    model = StepperSync(difficulty_conditioning="meter")
 
     init_weights_deterministic(model, seed=seed)
 
@@ -78,6 +79,7 @@ def export_checkpoint(
         "global_step": 0,
         "model_state_dict": save_model.state_dict(),
         "config": {
+            "model": {"difficulty_conditioning": "meter"},
             "d_model": 256,
             "vocab_size": 96,
             "ticks_per_beat": 48,

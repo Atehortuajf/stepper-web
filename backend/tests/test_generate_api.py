@@ -24,7 +24,7 @@ def test_generate_endpoint_requires_audio_by_default(client: TestClient):
         "start_beat": 0.0,
         "num_beats": 16.0,
         "bpm": 140.0,
-        "difficulty": 3,
+        "meter": 3,
     }
     res = client.post("/api/generate", json=payload)
     assert res.status_code == 422
@@ -38,7 +38,8 @@ def test_generate_endpoint_with_audio_slice(client: TestClient, sample_wav_base6
         "start_beat": 0.0,
         "num_beats": 8.0,
         "bpm": 120.0,
-        "difficulty": 2,
+        "meter": 8,
+        "category": "Medium",
     }
     res = client.post("/api/generate", json=payload)
     assert res.status_code == 200
@@ -55,7 +56,8 @@ def test_generate_endpoint_string_difficulty(client: TestClient):
             "start_beat": 0.0,
             "num_beats": 8.0,
             "bpm": 130.0,
-            "difficulty": diff_name,
+            "meter": 8,
+            "category": diff_name,
             "force_fallback": True,
         }
         res = client.post("/api/generate", json=payload)
@@ -74,7 +76,7 @@ def test_generate_endpoint_tech_conditioning(client: TestClient):
         "start_beat": 0.0,
         "num_beats": 16.0,
         "bpm": 145.0,
-        "difficulty": 4,
+        "meter": 4,
         "tech_vector": tech_vec,
         "force_fallback": True,
     }
@@ -91,7 +93,7 @@ def test_generate_endpoint_force_fallback(client: TestClient):
         "start_beat": 0.0,
         "num_beats": 16.0,
         "bpm": 140.0,
-        "difficulty": 3,
+        "meter": 3,
         "force_fallback": True,
     }
     res = client.post("/api/generate", json=payload)
@@ -109,7 +111,7 @@ def test_websocket_streaming_generate(client: TestClient):
                 "start_beat": 0.0,
                 "num_beats": 16.0,
                 "bpm": 140.0,
-                "difficulty": 3,
+                "meter": 8,
                 "force_fallback": True,
             },
             "chunk_size_beats": 4.0,

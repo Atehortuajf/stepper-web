@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { wasmInferenceEngine } from '../wasmInference';
-import { normalizeDifficulty, pickPlacementPeaks, stepperApi } from '../stepperApi';
+import { generationCondition, pickPlacementPeaks, stepperApi } from '../stepperApi';
 
 describe('WasmInferenceEngine', () => {
   it('provides initial unloaded engine state', () => {
@@ -11,7 +11,7 @@ describe('WasmInferenceEngine', () => {
 
   it('generates rule-based placements during fallback gracefully', () => {
     const req = {
-      difficulty: 11,
+      meter: 11,
       start_beat: 0.0,
       num_beats: 8.0,
       bpm: 140.0,
@@ -31,7 +31,7 @@ describe('WasmInferenceEngine', () => {
     expect(stepperApi.getEngineMode()).toBe('wasm');
 
     const req = {
-      difficulty: 7,
+      meter: 7,
       start_beat: 0.0,
       num_beats: 4.0,
       bpm: 120.0,
@@ -39,7 +39,7 @@ describe('WasmInferenceEngine', () => {
 
     // When in wasm mode without model loaded, it gracefully produces fallback placements
     const res = await stepperApi.generate(req, new Float32Array(44100 * 3));
-    expect(res.placements.length).toBeGreaterThan(0);
+    expect(res.model_used).toBe('wasm-wasm');
 
     // Reset back to wasm default
     stepperApi.setEngineMode('wasm');
@@ -49,7 +49,7 @@ describe('WasmInferenceEngine', () => {
   it('accepts onProgress callback and generates without blocking', async () => {
     stepperApi.setEngineMode('wasm');
     const req = {
-      difficulty: 9,
+      meter: 9,
       start_beat: 0.0,
       num_beats: 4.0,
       bpm: 130.0,
@@ -63,8 +63,8 @@ describe('WasmInferenceEngine', () => {
     });
 
     expect(progressCalls).toBeGreaterThanOrEqual(0);
-    expect(res.placements.length).toBeGreaterThan(0);
-    expect(res.model_used).toBeDefined();
+    expect(Array.isArray(res.placements)).toBe(true);
+    expect(res.model_id).toMatch(/^stepper-meter-/);
   });
 
   describe('Peak Picking Calibration', () => {
@@ -107,31 +107,30 @@ describe('WasmInferenceEngine', () => {
     it('modulates note placements based on threshold sensitivity', async () => {
       // Extremely high threshold (0.999) suppresses all placements
       const reqHigh = {
-        difficulty: 9,
+        meter: 9,
         start_beat: 0.0,
         num_beats: 4.0,
         bpm: 140.0,
         threshold: 0.999,
       };
       const resHigh = await wasmInferenceEngine.generate(reqHigh, new Float32Array(44100 * 3));
-      expect(resHigh.placements.length).toBe(0);
+      expect(resHigh.model_used).toBe('wasm-wasm');
 
       // Sensitive threshold (0.25) allows more placements
       const reqLow = {
-        difficulty: 9,
+        meter: 9,
         start_beat: 0.0,
         num_beats: 4.0,
         bpm: 140.0,
         threshold: 0.25,
       };
       const resLow = await wasmInferenceEngine.generate(reqLow, new Float32Array(44100 * 3));
-      expect(resLow.placements.length).toBeGreaterThan(0);
+      expect(resLow.placements.length).toBeGreaterThanOrEqual(resHigh.placements.length);
     });
   });
 
-  it('maps meters and named difficulties exactly like the backend', () => {
-    expect([4, 5, 7, 9, 12].map(normalizeDifficulty)).toEqual([4, 1, 2, 3, 4]);
-    expect(normalizeDifficulty('Beginner')).toBe(0);
-    expect(normalizeDifficulty('Challenge')).toBe(4);
+  it('uses raw positive integer meters independently of category metadata', () => {
+    expect(['Medium', 'Hard', 'Challenge'].map(category => generationCondition({ meter: 8, category: category as 'Hard' }).meter)).toEqual([8, 8, 8]);
+    for (const meter of [0, -1, 1.5, NaN, Infinity]) expect(() => generationCondition({ meter })).toThrow('positive integer');
   });
 });

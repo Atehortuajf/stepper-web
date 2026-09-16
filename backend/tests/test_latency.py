@@ -19,7 +19,7 @@ def test_latency_16_beat_chunk_benchmark(client: TestClient, sample_wav_base64: 
         "start_beat": 0.0,
         "num_beats": 16.0,
         "bpm": 140.0,
-        "difficulty": 3,
+        "meter": 3,
         "tech_vector": [0.0] * 16,
         "audio_slice": sample_wav_base64,
     }
@@ -50,7 +50,7 @@ def test_latency_full_chart_benchmark(client: TestClient, sample_wav_base64: str
         "start_beat": 0.0,
         "num_beats": 64.0,
         "bpm": 140.0,
-        "difficulty": 3,
+        "meter": 3,
         "tech_vector": [0.0] * 16,
         "audio_slice": sample_wav_base64,
     }
@@ -76,7 +76,7 @@ def test_latency_fallback_mode_speed(client: TestClient):
         "start_beat": 0.0,
         "num_beats": 16.0,
         "bpm": 140.0,
-        "difficulty": 4,
+        "meter": 4,
         "force_fallback": True,
     }
 

@@ -81,7 +81,7 @@ describe('StepperApiClient', () => {
     });
 
     const req: GenerateRequest = {
-      difficulty: 12,
+      meter: 12,
       tech_vector: new Array(16).fill(0.5),
       start_beat: 0.0,
       num_beats: 16.0,
@@ -108,7 +108,7 @@ describe('StepperApiClient', () => {
       text: async () => 'Invalid tech vector dimensions',
     });
 
-    await expect(client.generate({ difficulty: 3 })).rejects.toThrow(
+    await expect(client.generate({ meter: 3 })).rejects.toThrow(
       'Generation failed with HTTP 422: Invalid tech vector dimensions'
     );
   });
@@ -202,7 +202,7 @@ describe('StepperApiClient', () => {
     const onError = vi.fn();
 
     const session = client.createWebSocketSession(
-      { difficulty: 3, num_beats: 16.0 },
+      { meter: 3, num_beats: 16.0 },
       { onProgress, onChunk, onComplete, onError }
     );
 

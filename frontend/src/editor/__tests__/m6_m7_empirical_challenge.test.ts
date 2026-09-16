@@ -149,7 +149,7 @@ describe('Milestones M6 & M7: Empirical Challenge Test Suite', () => {
       const onError = vi.fn();
 
       const session = client.createWebSocketSession(
-        { difficulty: 9, num_beats: 8.0, bpm: 140.0 },
+        { meter: 9, num_beats: 8.0, bpm: 140.0 },
         { onProgress, onChunk, onComplete, onError }
       );
 
@@ -189,7 +189,7 @@ describe('Milestones M6 & M7: Empirical Challenge Test Suite', () => {
 
       for (const diff of difficulties) {
         const req = {
-          difficulty: diff,
+          meter: diff,
           start_beat: 0.0,
           num_beats: 16.0,
           bpm: 140.0,
@@ -212,7 +212,7 @@ describe('Milestones M6 & M7: Empirical Challenge Test Suite', () => {
     it('modulates choreography based on 16-D technique conditioning vector z_tech', async () => {
       // High bracket conditioning (z_tech[3] = 0.9)
       const bracketReq = {
-        difficulty: 12,
+        meter: 12,
         start_beat: 0.0,
         num_beats: 16.0,
         bpm: 140.0,
@@ -224,7 +224,7 @@ describe('Milestones M6 & M7: Empirical Challenge Test Suite', () => {
 
       // High footswitch/jack conditioning (z_tech[1] = 0.9)
       const footswitchReq = {
-        difficulty: 12,
+        meter: 12,
         start_beat: 0.0,
         num_beats: 16.0,
         bpm: 140.0,
@@ -239,7 +239,7 @@ describe('Milestones M6 & M7: Empirical Challenge Test Suite', () => {
       const stages: string[] = [];
 
       const req = {
-        difficulty: 11,
+        meter: 11,
         start_beat: 0.0,
         num_beats: 8.0,
         bpm: 160.0,
@@ -262,7 +262,7 @@ describe('Milestones M6 & M7: Empirical Challenge Test Suite', () => {
     it('handles adversarial audio input (0-sample buffer, 500k samples, negative offset, extreme BPM)', async () => {
       // 1. 0-sample buffer
       await expect(wasmInferenceEngine.generate({
-        difficulty: 7,
+        meter: 7,
         num_beats: 4.0,
         bpm: 120.0,
       }, new Float32Array(0))).rejects.toThrow('decoded audio waveform is required');
@@ -273,7 +273,7 @@ describe('Milestones M6 & M7: Empirical Challenge Test Suite', () => {
         bigWaveform[i] = Math.sin(i * 0.01);
       }
       const resBig = await wasmInferenceEngine.generate({
-        difficulty: 9,
+        meter: 9,
         num_beats: 8.0,
         bpm: 150.0,
         offset: -0.05,
@@ -282,8 +282,8 @@ describe('Milestones M6 & M7: Empirical Challenge Test Suite', () => {
       expect(resBig.placements.length).toBeGreaterThan(0);
 
       // 3. Extreme BPMs: 40 BPM and 400 BPM
-      const resSlow = await wasmInferenceEngine.generate({ difficulty: 5, num_beats: 4.0, bpm: 40.0, force_fallback: true });
-      const resFast = await wasmInferenceEngine.generate({ difficulty: 15, num_beats: 16.0, bpm: 400.0, force_fallback: true });
+      const resSlow = await wasmInferenceEngine.generate({ meter: 5, num_beats: 4.0, bpm: 40.0, force_fallback: true });
+      const resFast = await wasmInferenceEngine.generate({ meter: 15, num_beats: 16.0, bpm: 400.0, force_fallback: true });
       expect(resSlow.placements.length).toBeGreaterThan(0);
       expect(resFast.placements.length).toBeGreaterThan(0);
     });

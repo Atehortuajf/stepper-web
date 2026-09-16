@@ -46,7 +46,7 @@ export interface FSMState {
 }
 
 export class ClientFootStateMachine {
-  public difficulty: number;
+  public difficulty: number | null;
   public state: FSMState;
 
   // Precomputed tables
@@ -60,7 +60,7 @@ export class ClientFootStateMachine {
   private isOppositeJump: boolean[] = [];
   private isSpecial: boolean[] = [];
 
-  constructor(difficulty: number = 3) {
+  constructor(difficulty: number | null = 3) {
     this.difficulty = difficulty;
     this.state = {
       activeHolds: new Set(),
@@ -153,7 +153,7 @@ export class ClientFootStateMachine {
     mask[0] = NEG_INF; // Rest token (0000)
 
     // 2. Difficulty Gating: Novice (0) and Easy (1) forbid hands and quads
-    if (this.difficulty <= 1) {
+    if (this.difficulty !== null && this.difficulty <= 1) {
       for (let c = 0; c < VOCAB_SIZE; c++) {
         if (this.isHand[c] || this.isQuad[c]) {
           mask[c] = NEG_INF;

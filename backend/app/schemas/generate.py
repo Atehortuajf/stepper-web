@@ -3,7 +3,7 @@ backend.app.schemas.generate
 Pydantic schemas for /api/generate and /api/ws/generate endpoints.
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Literal
 from pydantic import BaseModel, Field
 
 
@@ -13,10 +13,9 @@ class GenerateRequest(BaseModel):
         None,
         description="Base64 encoded PCM WAV audio buffer or raw PCM data. Required for neural generation; omit only with explicit rule-based fallback.",
     )
-    # Difficulty: integer (0-4: Novice, Easy, Medium, Hard, Expert; or 1-25+ ITG meter) or string
-    difficulty: Union[int, str] = Field(
-        3,
-        description="Target difficulty tier (0-4 / Novice-Expert) or numerical meter (1-25+).",
+    meter: int = Field(..., ge=1, strict=True, description="Positive integer numeric model condition; never a category ID")
+    category: Literal["Beginner", "Easy", "Medium", "Hard", "Challenge", "Edit"] = Field(
+        "Hard", description="Export metadata only; does not condition the model"
     )
     # 16-D continuous technique conditioning vector z_tech in [0.0, 1.0]
     tech_vector: Optional[List[float]] = Field(
@@ -65,6 +64,10 @@ class Placement(BaseModel):
 class GenerateResponse(BaseModel):
     placements: List[Placement] = Field(..., description="Predicted note placements")
     latency_ms: float = Field(..., description="Total inference latency in milliseconds")
+    meter: int
+    category: str
+    model_id: Optional[str] = None
+    checkpoint_sha256: Optional[str] = None
     difficulty_id: int = Field(..., description="Standardized difficulty index (0-4)")
     difficulty_str: str = Field(..., description="Human-readable difficulty tier name")
     model_used: str = Field(..., description="'neural', explicitly labelled 'synthetic', or opt-in 'fallback'")
@@ -79,6 +82,10 @@ class WSGenerateMessage(BaseModel):
 
 class WSGenerateResponse(BaseModel):
     """Server response streamed over WebSocket."""
+    meter: Optional[int] = None
+    category: Optional[str] = None
+    model_id: Optional[str] = None
+    checkpoint_sha256: Optional[str] = None
     type: str = Field(..., description="'progress', 'chunk', 'complete', or 'error'")
     progress: Optional[float] = Field(None, description="Progress fraction [0.0, 1.0]")
     message: Optional[str] = Field(None, description="Status or error message")

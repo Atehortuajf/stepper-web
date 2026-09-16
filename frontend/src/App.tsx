@@ -484,7 +484,7 @@ export function App() {
 
   // Apply updated note rows to active chart and update measures representation
   const applyUpdatedRows = useCallback(
-    (newRows: NoteRow[]) => {
+    (newRows: NoteRow[], metadata?: Pick<Chart, 'meter' | 'difficulty'>) => {
       if (!activeChart) return;
       const holdErrors = validateHoldTopology(newRows, panelCount);
       if (holdErrors.length > 0) {
@@ -492,7 +492,7 @@ export function App() {
         return;
       }
       undoHistory.push(historyScope, { chart: activeChart });
-      const updatedChart = rebuildChartFromRows(activeChart, newRows, panelCount);
+      const updatedChart = rebuildChartFromRows({ ...activeChart, ...metadata }, newRows, panelCount);
 
       const updatedCharts = [...simfile.charts];
       updatedCharts[activeChartIndex] = updatedChart;
@@ -871,6 +871,7 @@ export function App() {
       revision: chartRevisionsRef.current[activeChartIndex] || 0,
       startBeat: rangeStartBeat,
       endBeat: rangeEndBeat,
+      generationMetadata: { meter: difficultyMeter, difficulty: (['Beginner', 'Easy', 'Medium', 'Hard', 'Challenge'] as const)[difficultyTier] },
     };
     setIsGenerating(true);
     setProposedPlacements(null);
@@ -928,7 +929,8 @@ export function App() {
       const resp = await stepperApi.generate(
         {
           audio_slice: audioSliceBase64,
-          difficulty: difficultyMeter,
+          meter: difficultyMeter,
+          category: context.generationMetadata!.difficulty,
           tech_vector: rawVector,
           start_beat: startBeat,
           num_beats: numBeats,
@@ -974,7 +976,7 @@ export function App() {
       if (requestId === generationRequestRef.current) setIsGenerating(false);
       setWasmStatus((prev) => (prev.startsWith('Generating') ? 'ready' : prev));
     }
-  }, [activeChart, activeChartIndex, audioMismatch, expectedAudioName, rangeStartBeat, rangeEndBeat, timingEngine, techVector, difficultyMeter, audioEngine, engineMode, placementThreshold]);
+  }, [activeChart, activeChartIndex, audioMismatch, expectedAudioName, rangeStartBeat, rangeEndBeat, timingEngine, techVector, difficultyMeter, difficultyTier, audioEngine, engineMode, placementThreshold]);
 
   // Accept & Commit proposed notes to active chart
   const handleAcceptProposed = useCallback(
@@ -1005,7 +1007,7 @@ export function App() {
         setGenerationError(error instanceof Error ? error.message : 'The generated range is not safe to apply.');
         return;
       }
-      applyUpdatedRows(updated.noteRows);
+      applyUpdatedRows(updated.noteRows, proposalContext.generationMetadata);
       setProposedPlacements(null);
       setProposalContext(null);
     },

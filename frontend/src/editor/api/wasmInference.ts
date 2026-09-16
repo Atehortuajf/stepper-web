@@ -6,6 +6,7 @@
  */
 
 import * as ort from 'onnxruntime-web';
+import { MODEL_METADATA, createVerifiedSession } from './modelContract';
 import { clientFeatureExtractor, resampleMonoWaveform } from '../audio/clientFeatureExtract';
 import {
   CHORD_TO_ID,
@@ -13,7 +14,7 @@ import {
   ID_TO_CHORD,
   VOCAB_SIZE,
 } from './fsmMask';
-import { normalizeDifficulty, pickPlacementPeaks } from './stepperApi';
+import { generationCondition, pickPlacementPeaks } from './stepperApi';
 import type { GenerateRequest, GenerateResponse, Placement } from './stepperApi';
 
 export type WasmModelStatus = 'unloaded' | 'loading' | 'ready' | 'error';
@@ -226,13 +227,13 @@ export class WasmInferenceEngine {
         // 1. Fetch & Initialize Placement Model
         this.progressPercent = 20;
         onProgress?.(20);
-        this.placementSession = await ort.InferenceSession.create(placementUrl, sessionOptions);
+        this.placementSession = await createVerifiedSession(placementUrl, 'stepper_placement.onnx', sessionOptions);
 
         this.progressPercent = 60;
         onProgress?.(60);
 
         // 2. Fetch & Initialize Decoder Model
-        this.decoderSession = await ort.InferenceSession.create(decoderUrl, sessionOptions);
+        this.decoderSession = await createVerifiedSession(decoderUrl, 'stepper_decoder.onnx', sessionOptions);
 
         this.progressPercent = 100;
         this.status = 'ready';
@@ -290,8 +291,9 @@ export class WasmInferenceEngine {
     const numBeats = Math.max(1, Math.round(req.num_beats ?? 16.0));
     const bpm = req.bpm ?? 140.0;
     const offset = req.offset ?? 0.0;
-    const diffIdx = normalizeDifficulty(req.difficulty);
-    const threshold = req.threshold ?? (diffIdx === 0 ? 0.30 : 0.50);
+    const condition = generationCondition(req);
+    const meter = condition.meter;
+    const threshold = req.threshold ?? 0.50;
     const temperature = req.temperature ?? 1.0;
     const useFsm = req.use_fsm ?? true;
 
@@ -309,7 +311,7 @@ export class WasmInferenceEngine {
     onProgress?.(35, 'Running PlacementNet ONNX');
     await yieldToMain();
     const audioTensor = new ort.Tensor('float32', audioFeatures, [1, 2, numBeats, 48, 128]);
-    const diffTensor = new ort.Tensor('int64', BigInt64Array.from([BigInt(diffIdx)]), [1]);
+    const diffTensor = new ort.Tensor('int64', BigInt64Array.from([BigInt(meter)]), [1]);
 
     const techArr = new Float32Array(16);
     if (req.tech_vector && req.tech_vector.length > 0) {
@@ -321,7 +323,7 @@ export class WasmInferenceEngine {
 
     const pResults = await this.placementSession.run({
       audio: audioTensor,
-      difficulty: diffTensor,
+      meter: diffTensor,
       tech_vector: techTensor,
     });
 
@@ -336,18 +338,7 @@ export class WasmInferenceEngine {
       return pickPlacementPeaks(probsData.subarray(0, totalTicks), th);
     };
 
-    let placedTicks = pickPeaks(threshold);
-
-    // If no peaks found and threshold was not explicitly specified, adaptively lower threshold
-    if (placedTicks.length === 0 && req.threshold === undefined) {
-      let maxP = 0.0;
-      for (let i = 0; i < totalTicks; i++) {
-        if (probsData[i] > maxP) maxP = probsData[i];
-      }
-      if (maxP >= 0.15) {
-        placedTicks = pickPeaks(maxP * 0.75);
-      }
-    }
+    const placedTicks = pickPeaks(threshold);
 
     if (placedTicks.length === 0) {
       const latencyMs = performance.now() - startTime;
@@ -355,8 +346,9 @@ export class WasmInferenceEngine {
       return {
         placements: [],
         latency_ms: latencyMs,
-        difficulty_id: diffIdx,
-        difficulty_str: ['Novice', 'Easy', 'Medium', 'Hard', 'Expert'][diffIdx],
+        ...condition,
+        model_id: MODEL_METADATA.model_id,
+        checkpoint_sha256: MODEL_METADATA.checkpoint_sha256,
         model_used: `wasm-${this.provider}`,
       };
     }
@@ -365,7 +357,7 @@ export class WasmInferenceEngine {
     const maxLen = 64;
     const numPlaced = placedTicks.length;
     const placements: Placement[] = [];
-    const fsm = new ClientFootStateMachine(diffIdx);
+    const fsm = new ClientFootStateMachine(null);
 
     for (let chunkStart = 0; chunkStart < numPlaced; chunkStart += maxLen) {
       const chunkEnd = Math.min(numPlaced, chunkStart + maxLen);
@@ -382,7 +374,7 @@ export class WasmInferenceEngine {
       for (let i = 0; i < chunkSize; i++) {
         const tick = placedTicks[chunkStart + i];
         const beat = tick / 48.0;
-        const delta = i === 0 && chunkStart === 0 ? 0.0 : beat - prevBeat;
+        const delta = beat - prevBeat;
         prevBeat = beat;
 
         deltaBuf[i] = delta;
@@ -414,7 +406,7 @@ export class WasmInferenceEngine {
           step_delta_beats: new ort.Tensor('float32', deltaBuf, [1, maxLen]),
           step_beat_phases: new ort.Tensor('int64', phaseBuf, [1, maxLen]),
           step_measure_phases: new ort.Tensor('int64', measBuf, [1, maxLen]),
-          difficulty: diffTensor,
+          meter: diffTensor,
           tech_vector: techTensor,
         };
 
@@ -484,8 +476,9 @@ export class WasmInferenceEngine {
     return {
       placements,
       latency_ms: latencyMs,
-      difficulty_id: diffIdx,
-      difficulty_str: ['Novice', 'Easy', 'Medium', 'Hard', 'Expert'][diffIdx],
+      ...condition,
+      model_id: MODEL_METADATA.model_id,
+      checkpoint_sha256: MODEL_METADATA.checkpoint_sha256,
       model_used: `wasm-${this.provider}`,
     };
   }
@@ -524,9 +517,8 @@ export class WasmInferenceEngine {
   ): GenerateResponse {
     const startBeat = req.start_beat ?? 0.0;
     const numBeats = Math.max(1, Math.round(req.num_beats ?? 16.0));
-    const difficultyMeter =
-      typeof req.difficulty === 'number' ? req.difficulty : parseInt(req.difficulty, 10) || 9;
-    const diffIdx = normalizeDifficulty(req.difficulty);
+    const difficultyMeter = req.meter;
+    const condition = generationCondition(req);
     const zTech = req.tech_vector || new Array(16).fill(0);
 
     const stepInterval = difficultyMeter >= 11 ? 0.25 : difficultyMeter >= 6 ? 0.5 : 1.0;
@@ -561,8 +553,7 @@ export class WasmInferenceEngine {
     return {
       placements,
       latency_ms: performance.now() - startTime,
-      difficulty_id: diffIdx,
-      difficulty_str: ['Novice', 'Easy', 'Medium', 'Hard', 'Expert'][diffIdx],
+      ...condition,
       model_used: 'client-rule',
     };
   }

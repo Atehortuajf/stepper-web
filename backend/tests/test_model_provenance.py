@@ -24,12 +24,12 @@ def test_explicit_missing_checkpoint_leaves_neural_unavailable(tmp_path):
     assert service.get_status()['model_loaded'] is False
     assert service.get_status()['status'] == 'degraded'
     with pytest.raises(RuntimeError, match='unavailable'):
-        service.generate(torch.zeros(2, 4, 48, 128), difficulty=2)
+        service.generate(torch.zeros(2, 4, 48, 128), meter=2)
 
 
 def test_empty_neural_prediction_stays_empty():
     service = service_with_model()
-    notes, source = service.generate(torch.zeros(2, 4, 48, 128), difficulty=2)
+    notes, source = service.generate(torch.zeros(2, 4, 48, 128), meter=2)
     assert notes == []
     assert source == 'neural'
     service.fallback_generator.generate.assert_not_called()
@@ -39,13 +39,13 @@ def test_neural_failure_is_not_a_successful_fallback():
     service = service_with_model()
     service.model.generate.side_effect = ValueError('bad model shape')
     with pytest.raises(RuntimeError, match='no rule-based notes'):
-        service.generate(torch.zeros(2, 4, 48, 128), difficulty=2)
+        service.generate(torch.zeros(2, 4, 48, 128), meter=2)
     service.fallback_generator.generate.assert_not_called()
 
 
 def test_synthetic_checkpoint_is_labelled():
     service = service_with_model([(0, '1000')], model_type='synthetic')
-    notes, source = service.generate(torch.zeros(2, 4, 48, 128), difficulty=2)
+    notes, source = service.generate(torch.zeros(2, 4, 48, 128), meter=2)
     assert notes[0]['arrows'] == '1000'
     assert source == 'synthetic'
 
@@ -53,7 +53,7 @@ def test_synthetic_checkpoint_is_labelled():
 def test_rule_based_mode_requires_explicit_request():
     service = service_with_model()
     service.fallback_generator.generate.return_value = []
-    notes, source = service.generate(torch.zeros(2, 4, 48, 128), difficulty=2, force_fallback=True)
+    notes, source = service.generate(torch.zeros(2, 4, 48, 128), meter=2, force_fallback=True)
     assert notes == [] and source == 'fallback'
     service.model.generate.assert_not_called()
     service.fallback_generator.generate.assert_called_once()

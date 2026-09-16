@@ -1,5 +1,7 @@
 # MVP implementation status
 
+Current numeric-meter release: see [model contract and verification](NUMERIC_MODEL.md). The 2026-09-16 release replaces the historical ONNX weights with the corrected best epoch-12 checkpoint. The engineering history below describes the earlier P0 pass.
+
 Checkpoint: 2026-09-11. Branch: `mvp/p0-stabilization-2026-09-11`. The editor was subsequently deployed and verified on GitHub Pages; see [deployment record](DEPLOYMENT.md). Future pushes to this source branch do not automatically deploy.
 
 ## Accepted checkpoints
@@ -30,8 +32,8 @@ TestClient stalled under the filesystem/socket sandbox but ran normally outside 
 
 ## Remaining limits
 
-The engineering P0 pass is complete; all agents are idle. Existing model weights predate corrected training in the core repository. Rule/solver output is heuristic and does not prove human playability. Third-party parsing is distinct from full game playback testing. Undo history is intentionally cleared before a global timing edit to avoid stale chart snapshots reverting newer shared timing; autosave/crash recovery is not implemented. Browser linear resampling differs in filtering quality from Python's resampler. Large full-song generation may need chunking/performance work.
+The engineering P0 pass is complete; all agents are idle. The historical weights described in this P0 record have been replaced by the numeric-meter release. Rule/solver output is heuristic and does not prove human playability. Third-party parsing is distinct from full game playback testing. Undo history is intentionally cleared before a global timing edit to avoid stale chart snapshots reverting newer shared timing; autosave/crash recovery is not implemented. Browser linear resampling differs in filtering quality from Python's resampler. Large full-song generation may need chunking/performance work.
 
-The core claim ledger and optional overnight runbook define remaining research work. Corrected corpus rights/deduplication, new training and held-out evaluation, baseline comparisons, and final author review remain necessary before research claims. Public hosting and backend exposure are separate release steps; no deployment was performed here.
+The core claim ledger and optional overnight runbook define remaining research work. Corrected corpus rights/deduplication, new training and held-out evaluation, baseline comparisons, and final author review remain necessary before research claims. Public hosting and backend exposure are separate release steps; the current deployment is recorded separately.
 
 Observed verification runtime: Node 22.14.0, npm 11.5.2, Python 3.12.14, torch 2.14.0+cpu, torchaudio 2.11.0+cpu, NumPy 2.5.3. Use dependency-supported versions on a fresh machine; these are observations, not a training environment lock.

@@ -65,10 +65,7 @@ export const TechConditioningPanel: React.FC<TechConditioningPanelProps> = ({
   // Handle difficulty tier selection
   const handleTierSelect = (tier: number) => {
     onDifficultyTierChange(tier);
-    const tierMeta = DIFFICULTY_TIERS.find((t) => t.tier === tier);
-    if (tierMeta) {
-      onDifficultyMeterChange(tierMeta.defaultMeter);
-    }
+
   };
 
   const categories = ['All', 'Switches', 'Brackets', 'Jacks', 'Rhythm & Stream', 'Baseline'] as const;
@@ -103,18 +100,18 @@ export const TechConditioningPanel: React.FC<TechConditioningPanelProps> = ({
         </div>
       </div>
 
-      {/* Difficulty Level & Meter Selector */}
+      {/* Numeric model condition; category is chart metadata only. */}
       <div className="space-y-1.5 bg-[#12151e] p-2.5 rounded border border-[#1e2333]">
         <div className="flex items-center justify-between text-[11px] font-semibold text-[#8b949e]">
-          <span>Target Difficulty</span>
+          <span>Numeric Meter</span>
           <div className="flex items-center gap-2 font-mono">
             <span className="text-[#6e7687]">Meter:</span>
             <input
               type="number"
               min={1}
-              max={30}
+              step={1}
               value={difficultyMeter}
-              onChange={(e) => onDifficultyMeterChange(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
+              onChange={(e) => onDifficultyMeterChange(Math.max(1, Math.trunc(Number(e.target.value) || 1)))}
               className="w-12 px-1.5 py-0.5 bg-[#0a0c10] border border-[#2b354b] rounded text-white font-bold text-center focus:outline-none focus:border-[#00e5ff]"
               data-testid="difficulty-meter-input"
             />
@@ -122,6 +119,7 @@ export const TechConditioningPanel: React.FC<TechConditioningPanelProps> = ({
         </div>
 
         {/* Tier Buttons */}
+        <p className="text-[#8b949e]">Category labels the exported chart; only meter conditions the model.</p>
         <div className="grid grid-cols-5 gap-1 pt-1">
           {DIFFICULTY_TIERS.map((t) => {
             const isSelected = difficultyTier === t.tier;

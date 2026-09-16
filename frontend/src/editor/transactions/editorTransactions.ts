@@ -14,6 +14,7 @@ export interface ProposalContext {
   revision: number;
   startBeat: number;
   endBeat: number;
+  generationMetadata?: Pick<Chart, 'meter' | 'difficulty'>;
 }
 
 export function deriveHolds(noteRows: NoteRow[], panelCount: number): HoldNote[] {

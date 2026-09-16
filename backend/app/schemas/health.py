@@ -15,4 +15,7 @@ class HealthResponse(BaseModel):
     model_loaded: bool = Field(..., description="Whether the StepperSync model is ready for inference")
     model_type: str = Field(..., description="Type of model loaded: 'genuine', 'synthetic', or 'fallback'")
     weights_path: Optional[str] = Field(None, description="Path to checkpoint weights file")
+    model_id: Optional[str] = None
+    checkpoint_sha256: Optional[str] = None
+    difficulty_conditioning: Optional[str] = None
     version: str = Field("0.1.0", description="Backend API service version")

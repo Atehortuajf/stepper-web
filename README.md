@@ -14,7 +14,7 @@ npm ci
 npm run dev
 ```
 
-Open the address printed by the dev server. Import an SM/SSC chart and its audio, edit or request a generated region, review the proposal, and export SSC to preserve chart-specific timing. The browser uses bundled historical ONNX weights; these have not been retrained with the corrected core labels. Rule checks are heuristic and do not guarantee human playability.
+Open the address printed by the dev server. Import an SM/SSC chart and its audio, edit or request a generated region, review the proposal, and export SSC to preserve chart-specific timing. The browser uses the corrected numeric-meter model selected at epoch 12 (checkpoint `704fa7775b3a…`). Enter a positive integer meter; Medium 8, Hard 8 and Challenge 8 use the same model condition. Category labels only affect chart metadata. See the [numeric-model release record](docs/mvp/NUMERIC_MODEL.md). Rule checks are heuristic and do not guarantee human playability.
 
 ## Verify
 
@@ -36,7 +36,7 @@ python -m pip install -r backend/requirements.txt
 python -m backend.app.main
 ```
 
-The default listener is localhost. Use `STEPPER_WEIGHTS_PATH` for a chosen checkpoint. Missing weights or failed neural inference produce errors; empty predictions stay empty. Rule-based generation requires explicit `force_fallback`. Synthetic checkpoints are labelled as such. Neural requests need valid audio and a consistent timing contract.
+The default listener is localhost. Set `STEPPER_WEIGHTS_PATH` to the numeric-meter `best_model.pt` checkpoint. The loader reconstructs the architecture from its saved configuration and rejects historical categorical checkpoints. Missing weights or failed neural inference produce errors; empty predictions stay empty. Rule-based generation requires explicit `force_fallback`. Synthetic checkpoints are labelled as such. Neural requests need valid audio and a consistent timing contract.
 
 ```sh
 OMP_NUM_THREADS=2 python -m pytest backend/tests -q
@@ -46,4 +46,4 @@ This backend is a local development component; public service deployment needs s
 
 ## Continue the project
 
-Both repositories contain current status, focused handoff notes and reproducible checks. Old orchestration documents and simulated figures are historical context, not release evidence. The core repository contains the research claim ledger and corrected-data runbook. No new training, study or public deployment was performed during this engineering pass.
+Both repositories contain current status, focused handoff notes and reproducible checks. Old orchestration documents and simulated figures are historical context, not release evidence. The core repository contains the research claim ledger and corrected-data runbook. The current numeric model release and publication are recorded in the deployment and numeric-model documents; research quality claims require separate evaluation.

@@ -6,6 +6,7 @@ explicitly labelled synthetic checkpoints, and opt-in rule-based generation.
 """
 
 import logging
+import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 import torch
@@ -15,6 +16,7 @@ from backend.app.core.fallback_model import FallbackGenerator
 
 # Install the sibling Stepper package in the backend environment.
 from stepper.model.stepper_sync import StepperSync
+from stepper.train.config import ModelConfig
 from stepper.data.vocabulary import CHORD_TO_ID
 
 logger = logging.getLogger("stepper_backend.model_loader")
@@ -33,6 +35,8 @@ class ModelService:
         self.model_type: str = "fallback"  # 'genuine', 'synthetic', 'fallback'
         self.is_loaded: bool = False
         self.weights_path: Optional[str] = None
+        self.checkpoint_sha256: Optional[str] = None
+        self.model_id: Optional[str] = None
 
     def initialize(
         self,
@@ -69,13 +73,16 @@ class ModelService:
         try:
             if target_path is None:
                 raise FileNotFoundError("No checkpoint found; configure STEPPER_WEIGHTS_PATH or explicitly request rule-based generation")
-            model = StepperSync()
 
             if target_path is not None:
                 logger.info(f"Loading checkpoint from: {target_path}")
                 # Load checkpoint
                 ckpt = torch.load(target_path, map_location="cpu", weights_only=True)
                 state_dict = ckpt.get("model_state_dict", ckpt)
+                config = ckpt.get("config", {}).get("model", {})
+                model = StepperSync.from_config(ModelConfig(**config)) if config else StepperSync()
+                if model.difficulty_conditioning != "meter":
+                    raise ValueError("This API requires a numeric-meter checkpoint; configure STEPPER_WEIGHTS_PATH")
 
                 # Determine if synthetic from checkpoint config
                 is_synth = False
@@ -90,6 +97,8 @@ class ModelService:
                     self.model_type = "genuine"
 
                 self.weights_path = str(target_path)
+                self.checkpoint_sha256 = hashlib.sha256(target_path.read_bytes()).hexdigest()
+                self.model_id = f"stepper-meter-{self.checkpoint_sha256[:12]}"
             # Convert to float32 if on CPU or if needed
             if self.device.type == "cpu":
                 model = model.float()
@@ -109,6 +118,8 @@ class ModelService:
             self.is_loaded = False
             self.model_type = "unavailable"
             self.weights_path = None
+            self.checkpoint_sha256 = None
+            self.model_id = None
             return False
 
     def get_status(self) -> Dict[str, Any]:
@@ -122,13 +133,17 @@ class ModelService:
             "model_loaded": self.is_loaded,
             "model_type": self.model_type,
             "weights_path": self.weights_path,
+            "checkpoint_sha256": self.checkpoint_sha256,
+            "model_id": self.model_id,
+            "difficulty_conditioning": "meter" if self.is_loaded else None,
             "version": settings.VERSION,
         }
 
     def generate(
         self,
         audio_features: torch.Tensor,
-        difficulty: int,
+        meter: int,
+        category: str = "Hard",
         tech_vector: Optional[Union[List[float], torch.Tensor]] = None,
         bpm: float = 140.0,
         offset: float = 0.0,
@@ -147,8 +162,9 @@ class ModelService:
             placements: List of dicts [{'beat': float, 'arrows': str, 'chord_idx': int, 'confidence': float}]
             model_used: 'neural', 'synthetic', or explicitly requested 'fallback'
         """
-        # Ensure difficulty in 0..4
-        diff_idx = max(0, min(4, int(difficulty)))
+        if not isinstance(meter, int) or isinstance(meter, bool) or meter < 1:
+            raise ValueError("Generation requires an explicit positive integer meter")
+        diff_idx = {"Beginner": 0, "Easy": 1, "Medium": 2, "Hard": 3, "Challenge": 4, "Edit": 4}[category]
 
         if not force_fallback:
             if self.model is None or not self.is_loaded:
@@ -173,6 +189,7 @@ class ModelService:
                     chart_result = self.model.generate(
                         audio=feats,
                         difficulty=diff_idx,
+                        meter=meter,
                         tech_vector=t_vec,
                         bpm=bpm,
                         offset=offset,
@@ -208,7 +225,7 @@ class ModelService:
             num_beats=num_beats,
             start_beat=start_beat,
             bpm=bpm,
-            difficulty=diff_idx,
+            difficulty=min(4, max(0, (meter - 1) // 3)),
             tech_vector=tech_vector,
             audio_flux=flux_tensor,
             threshold=threshold,
