@@ -1,0 +1,31 @@
+{
+  "verified_at_utc": "2026-09-16T06:41:58.607199+00:00",
+  "url": "https://atehortuajf.github.io/stepper-web/",
+  "pages_commit": "342b8e28e8e19362b97a444a8efa3fef18b6b327",
+  "source_commit": "7b608f8be4461ca8b07dc693941491749bf9436d",
+  "checkpoint_sha256": "704fa7775b3a0cdee1dba0af08d675fc36e18a2d5d213d56d0ad44188393e6ec",
+  "model_manifest_sha256": "2d77156c7d2887e9579b7e8d79f210c5be8097c4922998901986f1c4c1efe000",
+  "index_sha256": "737ebcd145f11476bac98d6488eb7303c502ecc596bf446ca85c4e69723c4e0c",
+  "assets": {
+    "stepper_placement.onnx": {
+      "sha256": "b1c3f0ef6d6338c143a4f41dfb0da716859b4ef84f6af5b5c4913d77f3be873f",
+      "bytes": 19686927,
+      "verified": true
+    },
+    "stepper_decoder.onnx": {
+      "sha256": "b0f693e8e1f1c1e9d71d615e7ee2b49d84ab4f0d953d395778cd80d997bccad6",
+      "bytes": 14637032,
+      "verified": true
+    }
+  },
+  "browser_smoke": {
+    "engine": "worker-wasm",
+    "meter": 8,
+    "category": "Hard",
+    "generated_rows": 4,
+    "observed_latency_ms": 459.0,
+    "accepted_chart": "Hard 8, 4 rows",
+    "undo_restored_chart": "Challenge 15, 16 rows",
+    "returning_session_reloaded": true
+  }
+}
