@@ -1,9 +1,10 @@
 {
-  "source_commit": "ce1a4d8104ce44a05d041218aef35f598c84525e",
+  "source_commit": "1afffaad829d78112b5121478a5035a0022a2687",
   "source_branch": "mvp/p0-stabilization-2026-09-11",
-  "built_at": "2026-09-16T07:37:34.630260+00:00",
+  "built_at": "2026-09-17T20:18:59.848850+00:00",
   "model_id": "stepper-meter-704fa7775b3a-null-acoustic",
   "checkpoint_sha256": "704fa7775b3a0cdee1dba0af08d675fc36e18a2d5d213d56d0ad44188393e6ec",
   "model_schema_version": 3,
-  "note": "Corrected null-acoustic guidance; unchanged epoch-12 numeric-meter checkpoint."
+  "inference_policy": "closed-holds-exact-span-rolling64-v1",
+  "note": "Hold closure, exact fractional spans, rolling chord history and strict proposal topology; unchanged epoch-12 numeric-meter checkpoint and schema-3 graphs."
 }

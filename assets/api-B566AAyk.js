@@ -1,1 +1,0 @@
-import"./index-MhyrCC4l.js";import{wasmInferenceEngine as e}from"./wasmInference-CnXJCyuG.js";export{e as wasmInferenceEngine};
