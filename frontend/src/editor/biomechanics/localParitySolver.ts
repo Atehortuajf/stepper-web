@@ -197,21 +197,16 @@ export function solveParityLocally(
     const pL = prevL !== null ? prevL : 0;
     const pR = prevR !== null ? prevR : 3;
 
-    if (taps.length === 1 && held.size >= 1) {
+    if (taps.length === 1 && held.size === 1) {
       const tap = taps[0];
-      const hList = Array.from(held);
-      for (const h of hList) {
-        if (pL === h) {
-          // Left foot is holding h; Right foot must hit tap
-          cands.push([h, tap, 'R']);
-        } else if (pR === h) {
-          // Right foot is holding h; Left foot must hit tap
-          cands.push([tap, h, 'L']);
-        } else {
-          // Neither foot was locked yet; either foot can hold h while other taps
-          cands.push([h, tap, 'R']);
-          cands.push([tap, h, 'L']);
-        }
+      const h = Array.from(held)[0];
+      if (pL === h) {
+        cands.push([h, tap, 'R']);
+      } else if (pR === h) {
+        cands.push([tap, h, 'L']);
+      } else {
+        cands.push([h, tap, 'R']);
+        cands.push([tap, h, 'L']);
       }
     } else if (n === 1) {
       const p = active[0];

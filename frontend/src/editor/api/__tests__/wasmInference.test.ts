@@ -26,6 +26,18 @@ describe('WasmInferenceEngine', () => {
     expect(res.difficulty_str).toBe('Hard');
   });
 
+  it('keeps fallback placements inside the exact fractional request span', () => {
+    const res = wasmInferenceEngine.generateRuleBasedFallback({
+      meter: 11,
+      start_beat: 2.25,
+      num_beats: 0.3,
+      tech_vector: new Array(16).fill(0),
+    }, performance.now());
+
+    expect(res.placements.length).toBeGreaterThan(0);
+    expect(res.placements.every((placement) => placement.beat < 2.55)).toBe(true);
+  });
+
   it('supports switching engine mode on stepperApi', async () => {
     stepperApi.setEngineMode('wasm');
     expect(stepperApi.getEngineMode()).toBe('wasm');

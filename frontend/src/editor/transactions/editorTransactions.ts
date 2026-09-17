@@ -58,7 +58,14 @@ export function validateHoldTopology(noteRows: NoteRow[], panelCount: number): s
         else active.set(track, row);
       } else if (char === '3') {
         if (!active.has(track)) errors.push(`orphan hold tail on column ${track + 1} at beat ${row.beat}`);
-        else active.delete(track);
+        else {
+          if (row.row <= active.get(track)!.row) {
+            errors.push(`hold tail must follow its head on column ${track + 1} at beat ${row.beat}`);
+          }
+          active.delete(track);
+        }
+      } else if ((char === '1' || char === 'M') && active.has(track)) {
+        errors.push(`${char === 'M' ? 'mine' : 'tap'} during hold on column ${track + 1} at beat ${row.beat}`);
       }
     }
   }

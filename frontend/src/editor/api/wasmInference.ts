@@ -16,7 +16,8 @@ import {
 } from './fsmMask';
 import { generationCondition, pickPlacementPeaks } from './stepperApi';
 import type { GenerateRequest, GenerateResponse, Placement } from './stepperApi';
-import { prepareDecoderAcousticBuffers } from './cfgAcoustics';
+import { filterPlacedTicksToSpan, prepareDecoderWindowBuffers } from './cfgAcoustics';
+import { sampleChordToken } from './chordSampling';
 
 export type WasmModelStatus = 'unloaded' | 'loading' | 'ready' | 'error';
 export type WasmExecutionProvider = 'webgpu' | 'wasm';
@@ -289,7 +290,8 @@ export class WasmInferenceEngine {
     }
 
     const startBeat = req.start_beat ?? 0.0;
-    const numBeats = Math.max(1, Math.round(req.num_beats ?? 16.0));
+    const requestedBeats = req.num_beats ?? 16.0;
+    const numBeats = Math.max(1, Math.ceil(requestedBeats));
     const bpm = req.bpm ?? 140.0;
     const offset = req.offset ?? 0.0;
     const condition = generationCondition(req);
@@ -340,7 +342,7 @@ export class WasmInferenceEngine {
       return pickPlacementPeaks(probsData.subarray(0, totalTicks), th);
     };
 
-    const placedTicks = pickPeaks(threshold);
+    const placedTicks = filterPlacedTicksToSpan(pickPeaks(threshold), requestedBeats);
 
     if (placedTicks.length === 0) {
       const latencyMs = performance.now() - startTime;
@@ -359,121 +361,67 @@ export class WasmInferenceEngine {
     const maxLen = 64;
     const numPlaced = placedTicks.length;
     const placements: Placement[] = [];
+    const chosenTokens: number[] = [];
     const fsm = new ClientFootStateMachine(null);
 
-    for (let chunkStart = 0; chunkStart < numPlaced; chunkStart += maxLen) {
-      const chunkEnd = Math.min(numPlaced, chunkStart + maxLen);
-      const chunkSize = chunkEnd - chunkStart;
-
-      const tokensBuf = new BigInt64Array(maxLen);
-      const { conditioned: hBuf, nullConditioned: hNullBuf } = prepareDecoderAcousticBuffers(
+    for (let globalIdx = 0; globalIdx < numPlaced; globalIdx++) {
+      const tick = placedTicks[globalIdx];
+      const beat = tick / 48.0;
+      const window = prepareDecoderWindowBuffers(
         acousticMapData,
         nullAcousticMapData,
         placedTicks,
-        chunkStart,
-        chunkSize,
+        chosenTokens,
+        globalIdx,
         maxLen,
       );
-      const deltaBuf = new Float32Array(maxLen);
-      const phaseBuf = new BigInt64Array(maxLen);
-      const measBuf = new BigInt64Array(maxLen);
 
-      let prevBeat = chunkStart > 0 ? placedTicks[chunkStart - 1] / 48.0 : 0.0;
-
-      for (let i = 0; i < chunkSize; i++) {
-        const tick = placedTicks[chunkStart + i];
-        const beat = tick / 48.0;
-        const delta = beat - prevBeat;
-        prevBeat = beat;
-
-        deltaBuf[i] = delta;
-        phaseBuf[i] = BigInt(tick % 48);
-        measBuf[i] = BigInt(Math.floor(beat) % 4);
+      // Yield to browser event loop every 4 steps to maintain 60/120 FPS
+      if (globalIdx % 4 === 0) {
+        const pct = 50 + Math.floor((globalIdx / numPlaced) * 45);
+        onProgress?.(pct, `Decoding step ${globalIdx + 1}/${numPlaced}`);
+        await yieldToMain();
       }
 
-      for (let stepIdx = 0; stepIdx < chunkSize; stepIdx++) {
-        const globalIdx = chunkStart + stepIdx;
-        const tick = placedTicks[globalIdx];
-        const beat = tick / 48.0;
-        const delta = deltaBuf[stepIdx];
+      const decoderInputs = {
+        step_tokens: new ort.Tensor('int64', window.tokens, [1, maxLen]),
+        acoustic_embeddings: new ort.Tensor('float32', window.conditioned, [1, maxLen, 256]),
+        null_acoustic_embeddings: new ort.Tensor('float32', window.nullConditioned, [1, maxLen, 256]),
+        step_delta_beats: new ort.Tensor('float32', window.deltaBeats, [1, maxLen]),
+        step_beat_phases: new ort.Tensor('int64', window.beatPhases, [1, maxLen]),
+        step_measure_phases: new ort.Tensor('int64', window.measurePhases, [1, maxLen]),
+        meter: diffTensor,
+        tech_vector: techTensor,
+      };
 
-        // Yield to browser event loop every 4 steps to maintain 60/120 FPS
-        if (stepIdx % 4 === 0) {
-          const pct = 50 + Math.floor((globalIdx / numPlaced) * 45);
-          onProgress?.(pct, `Decoding step ${globalIdx + 1}/${numPlaced}`);
-          await yieldToMain();
-        }
+      const dResults = await this.decoderSession.run(decoderInputs);
+      const stepLogits = dResults.step_logits.data as Float32Array;
+      const logitOffset = window.activeIndex * VOCAB_SIZE;
 
-        const decoderInputs = {
-          step_tokens: new ort.Tensor('int64', tokensBuf, [1, maxLen]),
-          acoustic_embeddings: new ort.Tensor('float32', hBuf, [1, maxLen, 256]),
-          null_acoustic_embeddings: new ort.Tensor('float32', hNullBuf, [1, maxLen, 256]),
-          step_delta_beats: new ort.Tensor('float32', deltaBuf, [1, maxLen]),
-          step_beat_phases: new ort.Tensor('int64', phaseBuf, [1, maxLen]),
-          step_measure_phases: new ort.Tensor('int64', measBuf, [1, maxLen]),
-          meter: diffTensor,
-          tech_vector: techTensor,
-        };
+      const maskedLogits = new Float32Array(VOCAB_SIZE);
+      const remainingEvents = numPlaced - globalIdx - 1;
+      const delta = window.deltaBeats[window.activeIndex];
+      const fsmMask = useFsm
+        ? fsm.computeMask(beat, delta, remainingEvents)
+        : new Float32Array(VOCAB_SIZE);
 
-        const dResults = await this.decoderSession.run(decoderInputs);
-        const stepLogits = dResults.step_logits.data as Float32Array;
-        const logitOffset = stepIdx * VOCAB_SIZE;
-
-        const maskedLogits = new Float32Array(VOCAB_SIZE);
-        const fsmMask = useFsm ? fsm.computeMask(beat, delta) : new Float32Array(VOCAB_SIZE);
-
-        for (let c = 0; c < VOCAB_SIZE; c++) {
-          maskedLogits[c] = stepLogits[logitOffset + c] + fsmMask[c];
-        }
-
-        let chosenToken = 1;
-        if (temperature <= 0.1) {
-          let maxVal = -Infinity;
-          for (let c = 1; c < VOCAB_SIZE; c++) {
-            if (maskedLogits[c] > maxVal) {
-              maxVal = maskedLogits[c];
-              chosenToken = c;
-            }
-          }
-        } else {
-          let maxLogit = -Infinity;
-          for (let c = 1; c < VOCAB_SIZE; c++) {
-            if (maskedLogits[c] > maxLogit) maxLogit = maskedLogits[c];
-          }
-
-          let sumExp = 0.0;
-          const expScores = new Float32Array(VOCAB_SIZE);
-          for (let c = 1; c < VOCAB_SIZE; c++) {
-            if (maskedLogits[c] > -1000) {
-              const e = Math.exp((maskedLogits[c] - maxLogit) / temperature);
-              expScores[c] = e;
-              sumExp += e;
-            }
-          }
-
-          if (sumExp > 0) {
-            let r = Math.random() * sumExp;
-            for (let c = 1; c < VOCAB_SIZE; c++) {
-              r -= expScores[c];
-              if (r <= 0) {
-                chosenToken = c;
-                break;
-              }
-            }
-          }
-        }
-
-        tokensBuf[stepIdx] = BigInt(chosenToken);
-        fsm.updateState(chosenToken, beat, delta);
-
-        const chordStr = ID_TO_CHORD[chosenToken] || '1000';
-        placements.push({
-          beat: Number((startBeat + beat).toFixed(4)),
-          arrows: chordStr,
-          chord_idx: chosenToken,
-          confidence: 0.95,
-        });
+      for (let c = 0; c < VOCAB_SIZE; c++) {
+        maskedLogits[c] = fsmMask[c] <= -1e8
+          ? -Infinity
+          : stepLogits[logitOffset + c] + fsmMask[c];
       }
+
+      const chosenToken = sampleChordToken(maskedLogits, temperature);
+      chosenTokens.push(chosenToken);
+      fsm.updateState(chosenToken, beat, delta);
+
+      const chordStr = ID_TO_CHORD[chosenToken] || '1000';
+      placements.push({
+        beat: Number((startBeat + beat).toFixed(4)),
+        arrows: chordStr,
+        chord_idx: chosenToken,
+        confidence: 0.95,
+      });
     }
 
     const latencyMs = performance.now() - startTime;
@@ -521,7 +469,7 @@ export class WasmInferenceEngine {
     startTime: number
   ): GenerateResponse {
     const startBeat = req.start_beat ?? 0.0;
-    const numBeats = Math.max(1, Math.round(req.num_beats ?? 16.0));
+    const requestedBeats = req.num_beats ?? 16.0;
     const difficultyMeter = req.meter;
     const condition = generationCondition(req);
     const zTech = req.tech_vector || new Array(16).fill(0);
@@ -531,7 +479,7 @@ export class WasmInferenceEngine {
     let lastTrack = 0;
 
     const placements: Placement[] = [];
-    for (let b = startBeat; b < startBeat + numBeats; b += stepInterval) {
+    for (let b = startBeat; b < startBeat + requestedBeats; b += stepInterval) {
       let chord = '0000';
       const pseudoRand = ((Math.round(b * 100) * 9301 + 49297) % 233280) / 233280;
       const isBracket = zTech[3] > 0.4 && pseudoRand < zTech[3] * 0.5;

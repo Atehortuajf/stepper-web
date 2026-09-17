@@ -4,7 +4,7 @@ POST /api/solve-parity endpoint.
 Biomechanical foot parity solver evaluating playability, ergonomic cost, and foot sequences.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from backend.app.schemas.parity import SolveParityRequest, SolveParityResponse
 from backend.app.core.parity_solver import solve_parity
 
@@ -17,4 +17,7 @@ async def solve_parity_endpoint(request: SolveParityRequest) -> SolveParityRespo
     Computes optimal foot placement sequence ('L', 'R', 'LR') and validates
     biomechanical playability using the Hidden Markov Model ViterbiFootSolver.
     """
-    return solve_parity(request)
+    try:
+        return solve_parity(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

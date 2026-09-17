@@ -196,6 +196,7 @@ class ModelService:
                         threshold=threshold,
                         temperature=temperature,
                         use_fsm_mask=use_fsm,
+                        num_beats=num_beats,
                     )
 
                 placements: List[Dict[str, Any]] = []

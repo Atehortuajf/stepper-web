@@ -413,4 +413,40 @@ describe('App editor transaction workflows', () => {
     expect(chartButton()).toBe(originalLabel);
   });
 
+  it('rejects an unclosed generated hold before showing an accept button', async () => {
+    vi.mocked(stepperApi.generate).mockResolvedValueOnce({
+      placements: [{ beat: 1, arrows: '2000', chord_idx: 16, confidence: 0.9 }],
+      latency_ms: 10, difficulty_id: 3, difficulty_str: 'Hard', model_used: 'test', meter: 9,
+    });
+    await act(async () => {
+      upload(container.querySelector('#fileInput')!, [
+        { name: 'fixture.sm', text: async () => TWO_CHART_SM },
+        { name: 'expected.ogg', arrayBuffer: async () => new ArrayBuffer(8) },
+      ]);
+      await Promise.resolve(); await Promise.resolve();
+    });
+    await act(async () => { container.querySelector<HTMLButtonElement>('[data-testid="generate-btn"]')!.click(); });
+    expect(container.querySelector('[data-testid="generation-error-banner"]')?.textContent)
+      .toContain('unclosed hold head');
+    expect(container.querySelector('[data-testid="accept-btn"]')).toBeNull();
+    expect(container.textContent).toContain('1000');
+  });
+
+  it('requests the exact fractional full-song span rather than rounding away its end', async () => {
+    vi.mocked(stepperApi.generate).mockResolvedValueOnce({
+      placements: [], latency_ms: 10, difficulty_id: 3, difficulty_str: 'Hard', model_used: 'test', meter: 9,
+    });
+    await act(async () => {
+      upload(container.querySelector('#fileInput')!, [
+        { name: 'fixture.sm', text: async () => TWO_CHART_SM },
+        { name: 'expected.ogg', arrayBuffer: async () => new ArrayBuffer(8) },
+      ]);
+      await Promise.resolve(); await Promise.resolve();
+    });
+    await act(async () => { container.querySelector<HTMLButtonElement>('[data-testid="mode-full-btn"]')!.click(); });
+    await act(async () => { container.querySelector<HTMLButtonElement>('[data-testid="generate-btn"]')!.click(); });
+    expect(vi.mocked(stepperApi.generate).mock.lastCall?.[0].num_beats).toBe(16.75);
+    expect(vi.mocked(stepperApi.generate).mock.lastCall?.[0].tick_times_sec).toHaveLength(17 * 48);
+  });
+
 });

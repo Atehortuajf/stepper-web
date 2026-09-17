@@ -101,3 +101,89 @@ def test_parity_bracket_detection(client: TestClient):
     assert res.status_code == 200
     data = res.json()
     assert data["is_playable"] is True
+
+
+def test_parity_accepts_bracketed_double_hold_plus_tap(client: TestClient):
+    """Keep the API and browser solver aligned on bracket-held freezes."""
+    payload = {
+        "steps_type": "dance-single",
+        "notes": [
+            {"beat": 0.0, "arrows": "2200"},
+            {"beat": 1.0, "arrows": "0001"},
+            {"beat": 2.0, "arrows": "3300"},
+        ],
+    }
+
+    res = client.post("/api/solve-parity", json=payload)
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["is_playable"] is True
+    assert data["annotated_steps"][1]["foot"] == "LR"
+    assert data["annotated_steps"][1]["flags"]["is_bracket"] is True
+
+
+def test_parity_rejects_unclosed_hold_instead_of_fabricating_tail(client: TestClient):
+    payload = {
+        "steps_type": "dance-single",
+        "notes": [
+            {"beat": 0.0, "arrows": "2000"},
+            {"beat": 1.0, "arrows": "0001"},
+        ],
+    }
+
+    res = client.post("/api/solve-parity", json=payload)
+
+    assert res.status_code == 422
+    assert "unclosed hold" in res.json()["detail"]
+
+
+def test_parity_rejects_mine_on_held_track(client: TestClient):
+    payload = {
+        "steps_type": "dance-single",
+        "notes": [
+            {"beat": 0.0, "arrows": "0200"},
+            {"beat": 1.0, "arrows": "0M00"},
+            {"beat": 2.0, "arrows": "0300"},
+        ],
+    }
+
+    res = client.post("/api/solve-parity", json=payload)
+
+    assert res.status_code == 422
+    assert "mine on held track" in res.json()["detail"]
+
+
+def test_parity_accepts_lift_fake_and_keysound_symbols(client: TestClient):
+    """Imported chart symbols outside the foot solver's scope remain accepted."""
+    payload = {
+        "steps_type": "dance-single",
+        "notes": [
+            {"beat": 0.0, "arrows": "2000"},
+            {"beat": 0.5, "arrows": "0L00"},
+            {"beat": 1.0, "arrows": "00F0"},
+            {"beat": 1.5, "arrows": "000K"},
+            {"beat": 2.0, "arrows": "3000"},
+            {"beat": 2.5, "arrows": "0001"},
+        ],
+    }
+
+    res = client.post("/api/solve-parity", json=payload)
+
+    assert res.status_code == 200
+    assert res.json()["is_playable"] is True
+
+
+def test_parity_rejects_tail_at_same_quantized_tick_as_head(client: TestClient):
+    payload = {
+        "steps_type": "dance-single",
+        "notes": [
+            {"beat": 0.0, "arrows": "2000"},
+            {"beat": 0.001, "arrows": "3000"},
+        ],
+    }
+
+    res = client.post("/api/solve-parity", json=payload)
+
+    assert res.status_code == 422
+    assert "release must follow head" in res.json()["detail"]

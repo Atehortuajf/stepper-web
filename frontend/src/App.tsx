@@ -879,7 +879,8 @@ export function App() {
     setGenerationError(null);
 
     const startBeat = rangeStartBeat;
-    const numBeats = Math.max(4, Math.ceil(rangeEndBeat - rangeStartBeat));
+    const requestedBeats = rangeEndBeat - rangeStartBeat;
+    const numBeats = Math.max(1, Math.ceil(requestedBeats));
     const bpm = timingEngine.initialBpm || 140.0;
     const rawVector = techVectorToArray(techVector);
     const sliceStartSec = timingEngine.beatToSeconds(startBeat);
@@ -933,7 +934,7 @@ export function App() {
           category: context.generationMetadata!.difficulty,
           tech_vector: rawVector,
           start_beat: startBeat,
-          num_beats: numBeats,
+          num_beats: requestedBeats,
           bpm,
           offset: timingEngine.offset,
           start_sec: actualSliceStartSec,
@@ -957,6 +958,9 @@ export function App() {
       if (requestId !== generationRequestRef.current || !sameProposalTarget(context, currentTarget)) {
         return;
       }
+      // Apply the same structural checks before preview and again on commit.
+      // Malformed backend/raw responses must not appear as acceptable proposals.
+      replaceRowsInHalfOpenRange(activeChart, resp.placements, startBeat, context.endBeat, panelCount);
       setProposedPlacements(resp.placements);
       setProposalContext(context);
       setGenerationLatency(resp.latency_ms);
@@ -976,7 +980,7 @@ export function App() {
       if (requestId === generationRequestRef.current) setIsGenerating(false);
       setWasmStatus((prev) => (prev.startsWith('Generating') ? 'ready' : prev));
     }
-  }, [activeChart, activeChartIndex, audioMismatch, expectedAudioName, rangeStartBeat, rangeEndBeat, timingEngine, techVector, difficultyMeter, difficultyTier, audioEngine, engineMode, placementThreshold]);
+  }, [activeChart, activeChartIndex, audioMismatch, expectedAudioName, rangeStartBeat, rangeEndBeat, timingEngine, techVector, difficultyMeter, difficultyTier, audioEngine, engineMode, placementThreshold, panelCount]);
 
   // Accept & Commit proposed notes to active chart
   const handleAcceptProposed = useCallback(

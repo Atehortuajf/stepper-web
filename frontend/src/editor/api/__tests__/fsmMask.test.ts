@@ -95,4 +95,31 @@ describe('ClientFootStateMachine', () => {
     const maskSlow = fsm.computeMask(0.50, 0.30);
     expect(maskSlow[tapLeft]).toBe(0.0);
   });
+
+  it('reserves enough remaining events to release every active hold', () => {
+    const fsm = new ClientFootStateMachine(null);
+
+    const penultimateMask = fsm.computeMask(1, 0.25, 1);
+    expect(penultimateMask[CHORD_TO_ID['2200']]).toBe(0);
+
+    fsm.state.activeHolds = new Set([0, 1, 2, 3]);
+    const constrainedMask = fsm.computeMask(1, 0.25, 1);
+    expect(constrainedMask[CHORD_TO_ID['3000']]).toBeLessThan(-1000);
+    expect(constrainedMask[CHORD_TO_ID['3300']]).toBe(0);
+
+    fsm.state.activeHolds = new Set([0, 1]);
+    const finalMask = fsm.computeMask(2, 0.25, 0);
+    expect(finalMask[CHORD_TO_ID['3300']]).toBe(0);
+    expect(finalMask[CHORD_TO_ID['3000']]).toBeLessThan(-1000);
+    expect(finalMask[CHORD_TO_ID['0020']]).toBeLessThan(-1000);
+  });
+
+  it('forbids mines on held panels', () => {
+    const fsm = new ClientFootStateMachine(null);
+    fsm.updateState(CHORD_TO_ID['2000'], 0, 0.25);
+    const mask = fsm.computeMask(1, 0.25);
+
+    expect(mask[CHORD_TO_ID['M000']]).toBeLessThan(-1000);
+    expect(mask[CHORD_TO_ID['0M00']]).toBe(0);
+  });
 });

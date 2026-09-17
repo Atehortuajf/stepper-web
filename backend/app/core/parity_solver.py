@@ -31,7 +31,12 @@ from backend.app.schemas.parity import (
 def extract_holds_from_notes(notes: List[Dict[str, Any]]) -> List[HoldNote]:
     """
     Pairs hold heads ('2' or '4') with hold releases ('3') per column track.
-    Handles unclosed holds gracefully by closing at track end.
+
+    Invalid hold topology is rejected rather than repaired.  Synthesizing a
+    release at the last row would allow malformed generated charts to pass the
+    parity endpoint as if they contained a closed hold. Lifts, fakes, and
+    keysounds are accepted chart symbols but remain outside the foot solver's
+    existing tap/head/roll scope.
     """
     active_holds: Dict[int, Tuple[int, float, bool]] = {}  # track -> (start_row, start_beat, is_roll)
     holds: List[HoldNote] = []
@@ -42,38 +47,35 @@ def extract_holds_from_notes(notes: List[Dict[str, Any]]) -> List[HoldNote]:
         row = int(round(b * 48.0))
 
         for track, char in enumerate(arr[:4]):
+            if char not in "01234MLFK":
+                raise ValueError(f"unsupported note symbol {char!r} at beat {b}, track {track}")
             if char in ("2", "4"):
-                # Start of hold/roll
+                if track in active_holds:
+                    raise ValueError(f"hold head on already-held track {track} at beat {b}")
                 active_holds[track] = (row, b, char == "4")
             elif char == "3":
-                # Release
-                if track in active_holds:
-                    start_row, start_b, is_roll = active_holds.pop(track)
-                    holds.append(
-                        HoldNote(
-                            track=track,
-                            start_row=start_row,
-                            end_row=row,
-                            start_beat=start_b,
-                            end_beat=b,
-                            is_roll=is_roll,
-                        )
+                if track not in active_holds:
+                    raise ValueError(f"hold release without head on track {track} at beat {b}")
+                start_row, start_b, is_roll = active_holds.pop(track)
+                if row <= start_row:
+                    raise ValueError(f"hold release must follow head on track {track} at beat {b}")
+                holds.append(
+                    HoldNote(
+                        track=track,
+                        start_row=start_row,
+                        end_row=row,
+                        start_beat=start_b,
+                        end_beat=b,
+                        is_roll=is_roll,
                     )
+                )
+            elif char in ("1", "M") and track in active_holds:
+                kind = "mine" if char == "M" else "tap"
+                raise ValueError(f"{kind} on held track {track} at beat {b}")
 
-    # Close any unclosed holds
-    last_b = float(notes[-1]["beat"]) if notes else 0.0
-    last_row = int(round(last_b * 48.0))
-    for track, (start_row, start_b, is_roll) in active_holds.items():
-        holds.append(
-            HoldNote(
-                track=track,
-                start_row=start_row,
-                end_row=max(last_row, start_row + 48),
-                start_beat=start_b,
-                end_beat=max(last_b, start_b + 1.0),
-                is_roll=is_roll,
-            )
-        )
+    if active_holds:
+        tracks = ", ".join(str(track) for track in sorted(active_holds))
+        raise ValueError(f"unclosed hold on track(s) {tracks}")
 
     return holds
 

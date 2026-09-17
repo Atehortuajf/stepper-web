@@ -6,6 +6,7 @@ WS /api/ws/generate - Real-time streaming generation for interactive scrubbing
 """
 
 import json
+import math
 import time
 from typing import Any, Dict, List, Tuple
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
@@ -89,7 +90,7 @@ async def generate_chart(request: GenerateRequest) -> GenerateResponse:
     start_time = time.perf_counter()
 
     diff_id, diff_str = normalize_difficulty(request.category)
-    total_beats = int(max(1, round(request.num_beats)))
+    total_beats = max(1, math.ceil(request.num_beats))
 
     # Extract audio features (2, total_beats, 48, 128)
     try:
@@ -116,7 +117,7 @@ async def generate_chart(request: GenerateRequest) -> GenerateResponse:
             bpm=request.bpm,
             offset=request.offset,
             start_beat=request.start_beat,
-            num_beats=float(total_beats),
+            num_beats=request.num_beats,
             threshold=request.threshold if request.threshold is not None else settings.DEFAULT_THRESHOLD,
             temperature=request.temperature if request.temperature is not None else settings.DEFAULT_TEMPERATURE,
             use_fsm=request.use_fsm,
@@ -182,7 +183,7 @@ async def websocket_generate(websocket: WebSocket) -> None:
             start_time = time.perf_counter()
             diff_id, diff_str = normalize_difficulty(req.category)
             chunk_size_beats = float(data.get("chunk_size_beats", 4.0))  # Default 1 measure = 4 beats
-            total_beats = int(max(1, round(req.num_beats)))
+            total_beats = max(1, math.ceil(req.num_beats))
 
             # 1. Send feature extraction progress
             await websocket.send_json(
@@ -228,7 +229,7 @@ async def websocket_generate(websocket: WebSocket) -> None:
                     bpm=req.bpm,
                     offset=req.offset,
                     start_beat=req.start_beat,
-                    num_beats=float(total_beats),
+                    num_beats=req.num_beats,
                     threshold=req.threshold if req.threshold is not None else settings.DEFAULT_THRESHOLD,
                     temperature=req.temperature if req.temperature is not None else settings.DEFAULT_TEMPERATURE,
                     use_fsm=req.use_fsm,

@@ -106,6 +106,26 @@ describe('editor transactions', () => {
     ]);
   });
 
+  it('rejects taps and mines inside holds even when both endpoints exist', () => {
+    for (const arrows of ['1000', 'M000']) {
+      const rows = [
+        { row: 0, beat: 0, arrows: '2000' },
+        { row: 48, beat: 1, arrows },
+        { row: 96, beat: 2, arrows: '3000' },
+      ];
+      expect(validateHoldTopology(rows, 4)[0]).toContain('during hold');
+      expect(() => replaceRowsInHalfOpenRange(chart([]), rows, 0, 4, 4))
+        .toThrow('during hold');
+    }
+  });
+
+  it('rejects zero-duration hold pairs', () => {
+    expect(validateHoldTopology([
+      { row: 0, beat: 0, arrows: '2000' },
+      { row: 0, beat: 0, arrows: '3000' },
+    ], 4)).toEqual(['hold tail must follow its head on column 1 at beat 0']);
+  });
+
   it('rejects a replacement whose exclusive end boundary separates a head from its tail', () => {
     const withBoundaryHold = chart([
       { row: 144, beat: 3, arrows: '2000' },

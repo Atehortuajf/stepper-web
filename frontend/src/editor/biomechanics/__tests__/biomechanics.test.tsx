@@ -15,7 +15,7 @@ import {
   UnplayabilityBanner,
 } from '../index';
 import type { BiomechanicalStep, UnplayabilityWarningItem } from '../types';
-import type { NoteRow } from '../../engine/types';
+import type { HoldNote, NoteRow } from '../../engine/types';
 
 // Configure React 19 testing environment for act
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -127,6 +127,25 @@ describe('Viterbi Biomechanical Foot Solver (localParitySolver)', () => {
     const bracketStep = result.steps.find((s) => s.flags.is_bracket);
     expect(bracketStep).toBeDefined();
     expect(bracketStep?.heelToe).toMatch(/LH|LT|RH|RT/);
+  });
+
+  it('matches the core solver for a bracketed double hold plus a tap', () => {
+    const notes: NoteRow[] = [
+      { row: 0, beat: 0.0, arrows: '2200' },
+      { row: 48, beat: 1.0, arrows: '0001' },
+      { row: 96, beat: 2.0, arrows: '3300' },
+    ];
+    const holds: HoldNote[] = [
+      { track: 0, startRow: 0, endRow: 96, startBeat: 0.0, endBeat: 2.0, isRoll: false },
+      { track: 1, startRow: 0, endRow: 96, startBeat: 0.0, endBeat: 2.0, isRoll: false },
+    ];
+
+    const result = solveParityLocally(notes, holds);
+
+    expect(result.is_playable).toBe(true);
+    expect(result.steps).toHaveLength(2);
+    expect(result.steps[1].foot).toBe('LR');
+    expect(result.steps[1].flags.is_bracket).toBe(true);
   });
 
   it('flags physically impossible combinations with high cost and playability failure', () => {

@@ -54,6 +54,7 @@ export class ClientFootStateMachine {
   private isHoldHead: boolean[][] = [];
   private isRollHead: boolean[][] = [];
   private isRelease: boolean[][] = [];
+  private isMine: boolean[][] = [];
   private tapCount: number[] = [];
   private isHand: boolean[] = [];
   private isQuad: boolean[] = [];
@@ -77,6 +78,7 @@ export class ClientFootStateMachine {
       this.isHoldHead[c] = [false, false, false, false];
       this.isRollHead[c] = [false, false, false, false];
       this.isRelease[c] = [false, false, false, false];
+      this.isMine[c] = [false, false, false, false];
 
       if (c === PAD_ID || c === BOS_ID || c === EOS_ID || c === UNK_ID) {
         this.isSpecial[c] = true;
@@ -103,6 +105,8 @@ export class ClientFootStateMachine {
           taps++;
         } else if (char === "3") {
           this.isRelease[c][p] = true;
+        } else if (char === "M") {
+          this.isMine[c][p] = true;
         }
       }
 
@@ -141,7 +145,11 @@ export class ClientFootStateMachine {
   /**
    * Computes additive logit mask (0.0 for allowed, -1e9 for forbidden).
    */
-  public computeMask(_beat: number = 0.0, _deltaBeat: number = 0.25): Float32Array {
+  public computeMask(
+    _beat: number = 0.0,
+    _deltaBeat: number = 0.25,
+    remainingEvents?: number,
+  ): Float32Array {
     const mask = new Float32Array(VOCAB_SIZE);
     const NEG_INF = -1e9;
 
@@ -203,6 +211,19 @@ export class ClientFootStateMachine {
         continue;
       }
 
+      // A mine cannot occupy a panel while that panel is being held.
+      let mineOnHeldPanel = false;
+      for (let p = 0; p < 4; p++) {
+        if (this.isMine[c][p] && held.has(p)) {
+          mineOnHeldPanel = true;
+          break;
+        }
+      }
+      if (mineOnHeldPanel) {
+        mask[c] = NEG_INF;
+        continue;
+      }
+
       // Invariant: Bipedal Contact Capacity
       let releasedCount = 0;
       for (const p of held) {
@@ -210,6 +231,19 @@ export class ClientFootStateMachine {
       }
       const survivingHolds = nHeld - releasedCount;
       const newTaps = this.tapCount[c];
+
+      if (remainingEvents !== undefined) {
+        const releaseSlots = Math.max(0, Math.floor(remainingEvents));
+        let newHoldCount = 0;
+        for (let p = 0; p < 4; p++) {
+          if (this.isHoldHead[c][p] || this.isRollHead[c][p]) newHoldCount++;
+        }
+        const resultingHolds = survivingHolds + newHoldCount;
+        if (resultingHolds > 2 * releaseSlots) {
+          mask[c] = NEG_INF;
+          continue;
+        }
+      }
 
       if (survivingHolds >= 2) {
         // Both feet holding: 0 free feet. Only releases allowed!
