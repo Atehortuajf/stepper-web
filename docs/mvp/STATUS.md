@@ -1,5 +1,7 @@
 # MVP implementation status
 
+September 17: [generation-validity release](GENERATION_VALIDITY_2026-09-17.md) fixes unclosed holds, fractional-boundary trimming, browser context resets, unsafe sampling, preview topology checks and a Viterbi held-bracket false positive. **227 frontend, 51 backend and 325 core tests pass**; production build and actual worker-WASM generate/accept/undo pass. The checkpoint/graphs are unchanged. See `DEPLOYMENT.md` for public publishing evidence. All older counts and deployment identities below are dated history.
+
 September16 overnight: schema3 guidance graphs and both browser runtimes now distinguish conditioned/null acoustic features, retaining the epoch12 checkpoint. Frontend214 tests,40 parity cases (<2e-5), production build and real local generate/accept/undo passed. See `NUMERIC_MODEL.md` for the contract and `DEPLOYMENT.md` for live publishing status; earlier test counts below are historical.
 
 Current numeric-meter release: see [model contract and verification](NUMERIC_MODEL.md). The 2026-09-16 release replaces the historical ONNX weights with the corrected best epoch-12 checkpoint. The engineering history below describes the earlier P0 pass.

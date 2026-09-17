@@ -1,6 +1,14 @@
-# GitHub Pages deployment — 2026-09-16
+# GitHub Pages deployment — 2026-09-17
 
-## Current verified null-acoustic release
+## Current verified generation-validity release
+
+The live editor at **https://atehortuajf.github.io/stepper-web/** uses source `1afffaad829d78112b5121478a5035a0022a2687`, published as Pages commit `f256290f8372b2208ec4b4f43d308146efb075e8`. The [publishing job](https://github.com/Atehortuajf/stepper-web/actions/runs/35270090471) completed successfully. Policy: `closed-holds-exact-span-rolling64-v1`.
+
+This release adds closed-hold decoding, exact fractional ranges, rolling chord history, strict proposal validation and a Viterbi held-bracket correction. The selected epoch-12 checkpoint and schema-3 graphs remain unchanged. See [changes and verification](GENERATION_VALIDITY_2026-09-17.md).
+
+[Public artifact proof](generation-validity-live-proof.json) verifies byte-for-byte agreement for nine files: deployment identity, HTML, four application/worker bundles, model metadata and both ONNX graphs. The final production build also passed actual local worker-WASM generation → acceptance → undo for both a selected region and a fractional full-song range, with no console warnings/errors. No public-browser interaction is inferred from the HTTP artifact check. Frontend 227 tests/build, backend 51 tests with the actual checkpoint and sibling core 325 tests passed. The optional Python backend is tested locally and is not hosted by Pages.
+
+## Historical September 16 null-acoustic release
 
 The current public release at **https://atehortuajf.github.io/stepper-web/** was built from source commit `ce1a4d8104ce44a05d041218aef35f598c84525e` and published as Pages commit `d9cf25ff6c85bddef650d8228f3481e087486e82`. The [`pages-build-deployment` run](https://github.com/Atehortuajf/stepper-web/actions/runs/35069494343) completed successfully.
 

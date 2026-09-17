@@ -1,0 +1,87 @@
+{
+  "verified_at": "2026-09-17T20:20:11.363331+00:00",
+  "url": "https://atehortuajf.github.io/stepper-web/",
+  "source_commit": "1afffaad829d78112b5121478a5035a0022a2687",
+  "pages_commit": "f256290f8372b2208ec4b4f43d308146efb075e8",
+  "deployment": {
+    "source_commit": "1afffaad829d78112b5121478a5035a0022a2687",
+    "source_branch": "mvp/p0-stabilization-2026-09-11",
+    "built_at": "2026-09-17T20:18:59.848850+00:00",
+    "model_id": "stepper-meter-704fa7775b3a-null-acoustic",
+    "checkpoint_sha256": "704fa7775b3a0cdee1dba0af08d675fc36e18a2d5d213d56d0ad44188393e6ec",
+    "model_schema_version": 3,
+    "inference_policy": "closed-holds-exact-span-rolling64-v1",
+    "note": "Hold closure, exact fractional spans, rolling chord history and strict proposal topology; unchanged epoch-12 numeric-meter checkpoint and schema-3 graphs."
+  },
+  "files": [
+    {
+      "path": "deployment.json",
+      "bytes": 578,
+      "sha256": "74dc013a765c1dbfaaf3c664d52742d376d056de310781b383cd1cae32629ce3",
+      "matches_pages_artifact": true
+    },
+    {
+      "path": "index.html",
+      "bytes": 461,
+      "sha256": "0112f884422302420b68e351fbf39c6ddeaa8ee4df878f5a696016b7e1eabc4f",
+      "matches_pages_artifact": true
+    },
+    {
+      "path": "models/model_metadata.json",
+      "bytes": 9937,
+      "sha256": "493d6a2d8ab506a920c4e3c0d95e1dbd15b193932682981b914633012fbc1e05",
+      "matches_pages_artifact": true
+    },
+    {
+      "path": "assets/inference.worker-DLeQsGR_.js",
+      "bytes": 446759,
+      "sha256": "f5d9e2c1cc8cb63688b8747a39e90bb3b37ed046ddc448d016d045d7af9245b2",
+      "matches_pages_artifact": true
+    },
+    {
+      "path": "assets/wasmInference-DSub9PPB.js",
+      "bytes": 426519,
+      "sha256": "4d085e576fac5198969916b4e6e8178c15b2e5b34d84e8494ee3b7b03bebff0d",
+      "matches_pages_artifact": true
+    },
+    {
+      "path": "assets/index-Dvz77eqn.js",
+      "bytes": 352393,
+      "sha256": "6e6639cc1fd76e90db071f05e5a0f814b99a9ebcd0faab1bb20a29e031521ce2",
+      "matches_pages_artifact": true
+    },
+    {
+      "path": "assets/api-B-PneU9L.js",
+      "bytes": 127,
+      "sha256": "230eddb91779b0a11bd6f81af6c38686e730025f18b48eb330337944e02a1527",
+      "matches_pages_artifact": true
+    },
+    {
+      "path": "models/stepper_placement.onnx",
+      "bytes": 19686948,
+      "sha256": "43b0477c6bc55033dd86ebe39efc14f680f597afc38dba899c555e0c3965ec7a",
+      "matches_pages_artifact": true
+    },
+    {
+      "path": "models/stepper_decoder.onnx",
+      "bytes": 14639653,
+      "sha256": "7d9424dc4cdb012f6741868251157e620d64fea31a8197afe61db5080215fc4e",
+      "matches_pages_artifact": true
+    }
+  ],
+  "browser_smoke": {
+    "environment": "local final production build, actual worker WASM",
+    "default_selection_rows": [
+      16,
+      1,
+      16
+    ],
+    "full_song_rows": [
+      16,
+      5,
+      16
+    ],
+    "console_errors_or_warnings": 0,
+    "scope": "generate, accept, undo; not a quality benchmark or a public browser interaction"
+  }
+}

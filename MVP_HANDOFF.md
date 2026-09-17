@@ -1,8 +1,14 @@
 # Stepper editor MVP: start here
 
-## Current checkpoint — September 16 overnight
+## Current checkpoint — September 17 generation validity
 
-This section supersedes the September11 engineering history below. Web source branch: `mvp/p0-stabilization-2026-09-11`; sibling core source branch: `train/corrected-2026-09-16`. The current public release is source `ce1a4d8104ce44a05d041218aef35f598c84525e` at Pages commit `d9cf25ff6c85bddef650d8228f3481e087486e82`; the [publishing run](https://github.com/Atehortuajf/stepper-web/actions/runs/35069494343) succeeded, and [the release proof](docs/mvp/null-acoustic-live-proof.json) verifies public metadata and both ONNX graphs against local artifacts.
+Read [the generation-validity release](docs/mvp/GENERATION_VALIDITY_2026-09-17.md) first. Closed-hold decoding, exact fractional ranges, rolling browser chord history, strict preview topology validation and a multi-hold Viterbi false-positive fix are verified with 227 frontend, 51 backend and 325 sibling-core tests plus actual browser generate/accept/undo. Weights and ONNX graphs are unchanged; no retraining is needed for these fixes. The new 48-window validation structural probe has zero topology errors; frozen paper evidence remains historical and unchanged.
+
+Live source `1afffaad829d78112b5121478a5035a0022a2687`; Pages `f256290f8372b2208ec4b4f43d308146efb075e8`; publishing run `35270090471` succeeded. See [deployment record](docs/mvp/DEPLOYMENT.md) and [public artifact proof](docs/mvp/generation-validity-live-proof.json). Use the same source branches named below. Symbolic correctness and heuristic checker success do not establish chord quality or human playability.
+
+## Historical checkpoint — September 16 overnight
+
+This section supersedes the September11 engineering history below. Web source branch: `mvp/p0-stabilization-2026-09-11`; sibling core source branch: `train/corrected-2026-09-16`. The September 16 public release was source `ce1a4d8104ce44a05d041218aef35f598c84525e` at Pages commit `d9cf25ff6c85bddef650d8228f3481e087486e82`; the [publishing run](https://github.com/Atehortuajf/stepper-web/actions/runs/35069494343) succeeded, and [the release proof](docs/mvp/null-acoustic-live-proof.json) verifies public metadata and both ONNX graphs against local artifacts.
 
 The editor retains the numeric-meter epoch12 weights, checkpoint SHA256 `704fa7775b3a0cdee1dba0af08d675fc36e18a2d5d213d56d0ad44188393e6ec`. Its corrected inference graphs expose separate conditioned/null acoustic features for decoder guidance, consistent with the training null path. Graph model ID `stepper-meter-704fa7775b3a-null-acoustic`, metadata schema3. Deploy runtime, both graphs and metadata together; old/new graph interfaces cannot be mixed.
 
